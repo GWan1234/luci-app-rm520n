@@ -22,12 +22,18 @@ _at_lock() {
 
 _at_unlock() { rmdir "$AT_LOCK" 2>/dev/null || true; }
 
-# Raw AT send — no locking. Caller must hold the lock.
+# Open/close the AT port fd.  fd 3 is kept open for the entire method
+# to avoid repeated DTR/RTS toggling that disturbs the modem mid-sequence.
+_at_open()  { exec 3<>"$AT_PORT"; }
+_at_close() { exec 3>&- 2>/dev/null || true; }
+
+# Send one AT command and return its output.
+# Requires fd 3 to be open (caller must call _at_open first).
+# No locking — caller holds the lock for the whole method.
 _at() {
     local cmd="$1" max="${2:-4}" tmpf="/tmp/_rm520n_at_$$" dpid i result
 
-    exec 3<>"$AT_PORT"
-    dd <&3 of="$tmpf" bs=1 count=256 2>/dev/null &
+    dd <&3 of="$tmpf" bs=1 count=4096 2>/dev/null &
     dpid=$!
     printf '%s\r\n' "$cmd" >&3
     i=0
@@ -37,7 +43,6 @@ _at() {
     done
     kill "$dpid" 2>/dev/null || true
     wait "$dpid" 2>/dev/null || true
-    exec 3>&- 2>/dev/null || true
 
     result="$(cat "$tmpf" 2>/dev/null)"
     rm -f "$tmpf"
@@ -53,7 +58,6 @@ _json_num() {
 }
 
 _parse_qcsq() {
-    # Sets tech/rssi/rsrp/sinr/rsrq from a qcsq string
     local qcsq="$1"
     tech="$(printf '%s' "$qcsq" | cut -d, -f1)"
     rssi="$(printf '%s' "$qcsq" | cut -d, -f2)"
@@ -80,11 +84,10 @@ _parse_reg_stat() {
 
 # ── Combined methods (used by the LuCI view) ──────────────────────────────
 
-# Returns all static + signal data in one call — avoids concurrent AT access
-# from Promise.all() on the JS side.
 _method_full_status() {
     _find_at_port || { printf '{"error":"AT port not found"}'; return; }
     _at_lock      || { printf '{"error":"AT port busy"}';      return; }
+    _at_open
 
     local fw imei creg_raw c5greg_raw creg c5greg qcsq cell lte_bands nr_bands mode
     local tech rssi rsrp sinr rsrq
@@ -99,6 +102,7 @@ _method_full_status() {
     nr_bands="$(_at  'AT+QNWPREFCFG="nr5g_band"'  | grep '^\+QNWPREFCFG' | head -1 | tr -d '\r')"
     mode="$(_at      'AT+QNWPREFCFG="mode_pref"'  | grep '^\+QNWPREFCFG' | head -1 | tr -d '\r')"
 
+    _at_close
     _at_unlock
     _parse_qcsq "$qcsq"
     creg="$(_parse_reg_stat "$creg_raw")"
@@ -118,11 +122,13 @@ _method_full_status() {
 _method_refresh() {
     _find_at_port || { printf '{"error":"AT port not found"}'; return; }
     _at_lock      || { printf '{"error":"AT port busy"}';      return; }
+    _at_open
 
     local qcsq cell tech rssi rsrp sinr rsrq
     qcsq="$(_at "AT+QCSQ"               | grep '^\+QCSQ' | head -1 | sed 's/+QCSQ: //' | tr -d '\r"')"
     cell="$(_at 'AT+QENG="servingcell"' | grep '^\+QENG' | head -1 | tr -d '\r')"
 
+    _at_close
     _at_unlock
     _parse_qcsq "$qcsq"
 
@@ -136,11 +142,13 @@ _method_refresh() {
 _method_status() {
     _find_at_port || { printf '{"error":"AT port not found"}'; return; }
     _at_lock      || { printf '{"error":"AT port busy"}';      return; }
+    _at_open
     local fw imei creg_raw c5greg_raw creg c5greg
-    fw="$(_at "ATI"        | grep -i 'revision' | head -1 | sed 's/.*Revision: *//' | tr -d '\r')"
-    imei="$(_at "AT+GSN"   | grep -E '^[0-9]{15}' | head -1 | tr -d '\r')"
+    fw="$(_at "ATI"           | grep -i 'revision' | head -1 | sed 's/.*Revision: *//' | tr -d '\r')"
+    imei="$(_at "AT+GSN"      | grep -E '^[0-9]{15}' | head -1 | tr -d '\r')"
     creg_raw="$(_at "AT+CREG?"    | grep '+CREG:'   | head -1 | tr -d '\r')"
     c5greg_raw="$(_at "AT+C5GREG?" | grep '+C5GREG:' | head -1 | tr -d '\r')"
+    _at_close
     _at_unlock
     creg="$(_parse_reg_stat "$creg_raw")"
     c5greg="$(_parse_reg_stat "$c5greg_raw")"
@@ -152,8 +160,10 @@ _method_status() {
 _method_signal() {
     _find_at_port || { printf '{"error":"AT port not found"}'; return; }
     _at_lock      || { printf '{"error":"AT port busy"}';      return; }
+    _at_open
     local qcsq tech rssi rsrp sinr rsrq
     qcsq="$(_at "AT+QCSQ" | grep '^\+QCSQ' | head -1 | sed 's/+QCSQ: //' | tr -d '\r"')"
+    _at_close
     _at_unlock
     _parse_qcsq "$qcsq"
     printf '{"technology":%s,"rssi":%s,"rsrp":%s,"sinr":%s,"rsrq":%s}' \
@@ -164,8 +174,10 @@ _method_signal() {
 _method_cell() {
     _find_at_port || { printf '{"error":"AT port not found"}'; return; }
     _at_lock      || { printf '{"error":"AT port busy"}';      return; }
+    _at_open
     local cell
     cell="$(_at 'AT+QENG="servingcell"' | grep '^\+QENG' | head -1 | tr -d '\r')"
+    _at_close
     _at_unlock
     printf '{"raw":%s}' "$(_json_str "$cell")"
 }
@@ -173,10 +185,12 @@ _method_cell() {
 _method_bands() {
     _find_at_port || { printf '{"error":"AT port not found"}'; return; }
     _at_lock      || { printf '{"error":"AT port busy"}';      return; }
+    _at_open
     local lte_bands nr_bands mode
     lte_bands="$(_at 'AT+QNWPREFCFG="lte_band"'  | grep '^\+QNWPREFCFG' | head -1 | tr -d '\r')"
     nr_bands="$(_at  'AT+QNWPREFCFG="nr5g_band"' | grep '^\+QNWPREFCFG' | head -1 | tr -d '\r')"
     mode="$(_at      'AT+QNWPREFCFG="mode_pref"' | grep '^\+QNWPREFCFG' | head -1 | tr -d '\r')"
+    _at_close
     _at_unlock
     printf '{"lte_bands":%s,"nr5g_bands":%s,"mode":%s}' \
         "$(_json_str "$lte_bands")" "$(_json_str "$nr_bands")" "$(_json_str "$mode")"
@@ -185,9 +199,11 @@ _method_bands() {
 _method_set_bands() {
     _find_at_port || { printf '{"error":"AT port not found"}'; return; }
     _at_lock      || { printf '{"error":"AT port busy"}';      return; }
+    _at_open
     local lte_band="$1" nr_band="$2"
     [ -n "$lte_band" ] && _at "AT+QNWPREFCFG=\"lte_band\",${lte_band}" >/dev/null
     [ -n "$nr_band"  ] && _at "AT+QNWPREFCFG=\"nr5g_band\",${nr_band}" >/dev/null
+    _at_close
     _at_unlock
     printf '{"result":"ok"}'
 }
@@ -195,7 +211,9 @@ _method_set_bands() {
 _method_reboot_modem() {
     _find_at_port || { printf '{"error":"AT port not found"}'; return; }
     _at_lock      || { printf '{"error":"AT port busy"}';      return; }
+    _at_open
     _at 'AT+CFUN=1,1' >/dev/null
+    _at_close
     _at_unlock
     printf '{"result":"rebooting"}'
 }
@@ -203,13 +221,16 @@ _method_reboot_modem() {
 _method_set_apn() {
     _find_at_port || { printf '{"error":"AT port not found"}'; return; }
     _at_lock      || { printf '{"error":"AT port busy"}';      return; }
+    _at_open
     local apn="$1"
     if [ -z "$apn" ]; then
+        _at_close
         _at_unlock
         printf '{"error":"apn required"}'
         return
     fi
     _at "AT+CGDCONT=1,\"IPV4V6\",\"${apn}\"" >/dev/null
+    _at_close
     _at_unlock
     printf '{"result":"ok","apn":"%s"}' "$apn"
 }
