@@ -4,19 +4,18 @@
 'require poll';
 'require ui';
 
-var callStatus   = rpc.declare({ object: 'rm520n', method: 'status',       expect: {} });
-var callSignal   = rpc.declare({ object: 'rm520n', method: 'signal',       expect: {} });
-var callCell     = rpc.declare({ object: 'rm520n', method: 'cell',         expect: {} });
-var callBands    = rpc.declare({ object: 'rm520n', method: 'bands',        expect: {} });
+// Single call returning all data — avoids concurrent AT port access.
+var callFullStatus = rpc.declare({ object: 'rm520n', method: 'full_status', expect: {} });
+// Signal + cell only — used by 10s auto-refresh poll.
+var callRefresh    = rpc.declare({ object: 'rm520n', method: 'refresh',     expect: {} });
+
 var callReboot   = rpc.declare({ object: 'rm520n', method: 'reboot_modem' });
-var callSetApn   = rpc.declare({ object: 'rm520n', method: 'set_apn',      params: ['apn'] });
-var callSetBands = rpc.declare({ object: 'rm520n', method: 'set_bands',    params: ['lte_band', 'nr_band'] });
+var callSetApn   = rpc.declare({ object: 'rm520n', method: 'set_apn',   params: ['apn'] });
+var callSetBands = rpc.declare({ object: 'rm520n', method: 'set_bands', params: ['lte_band', 'nr_band'] });
 
 function signalBar(rsrp) {
     var val = parseInt(rsrp);
-    if (isNaN(val)) {
-        return E('span', { 'style': 'color:#999' }, '—');
-    }
+    if (isNaN(val)) return E('span', { 'style': 'color:#999' }, '—');
     var pct   = Math.max(0, Math.min(100, (val + 140) / 80 * 100));
     var color = pct > 60 ? '#4caf50' : pct > 30 ? '#ff9800' : '#f44336';
     return E('div', { 'style': 'display:flex;align-items:center;gap:8px' }, [
@@ -49,61 +48,58 @@ function setEl(id, child) {
     if (child instanceof Node) {
         el.appendChild(child);
     } else {
-        el.textContent = child != null ? String(child) : '—';
+        el.textContent = (child != null && child !== '') ? String(child) : '—';
     }
 }
 
-function updateSignal(sig, cell) {
-    setEl('sig-tech', techBadge(sig.technology));
-    setEl('sig-rsrp', signalBar(sig.rsrp));
-    setEl('sig-rssi', sig.rssi != null ? sig.rssi + ' dBm' : '—');
-    setEl('sig-sinr', sig.sinr != null ? sig.sinr + ' dB'  : '—');
-    setEl('sig-rsrq', sig.rsrq != null ? sig.rsrq + ' dB'  : '—');
-    setEl('sig-cell', (cell && cell.raw) || '—');
+function updateSignal(d) {
+    setEl('sig-tech', techBadge(d.technology));
+    setEl('sig-rsrp', signalBar(d.rsrp));
+    setEl('sig-rssi', d.rssi != null ? d.rssi + ' dBm' : '—');
+    setEl('sig-sinr', d.sinr != null ? d.sinr + ' dB'  : '—');
+    setEl('sig-rsrq', d.rsrq != null ? d.rsrq + ' dB'  : '—');
+    setEl('sig-cell', d.cell || '—');
 }
 
 return view.extend({
     load: function() {
-        return Promise.all([ callStatus(), callSignal(), callCell(), callBands() ]);
+        return callFullStatus();
     },
 
-    render: function(data) {
-        var status = data[0] || {};
-        var signal = data[1] || {};
-        var cell   = data[2] || {};
-        var bands  = data[3] || {};
+    render: function(d) {
+        d = d || {};
 
         var infoCard = E('div', { 'class': 'cbi-section' }, [
             E('h3', {}, 'Modem Information'),
             E('table', { 'style': 'width:100%;border-collapse:collapse' }, [
-                row('Firmware',  E('span', { 'id': 'st-fw'   }, status.firmware  || '—')),
-                row('IMEI',      E('span', { 'id': 'st-imei' }, status.imei      || '—')),
-                row('AT Port',   E('span', { 'id': 'st-port' }, status.at_port   || '—')),
-                row('LTE Reg',   E('span', { 'id': 'st-creg' }, status.creg      || '—')),
-                row('5G NR Reg', E('span', { 'id': 'st-5g'   }, status.c5greg    || '—')),
+                row('Firmware',  E('span', { 'id': 'st-fw'   }, d.firmware  || '—')),
+                row('IMEI',      E('span', { 'id': 'st-imei' }, d.imei      || '—')),
+                row('AT Port',   E('span', { 'id': 'st-port' }, d.at_port   || '—')),
+                row('LTE Reg',   E('span', { 'id': 'st-creg' }, d.creg      || '—')),
+                row('5G NR Reg', E('span', { 'id': 'st-5g'   }, d.c5greg    || '—')),
             ])
         ]);
 
         var signalCard = E('div', { 'class': 'cbi-section' }, [
             E('h3', { 'style': 'display:flex;align-items:center;gap:10px' }, [
                 'Signal Quality  ',
-                E('span', { 'id': 'sig-tech' }, [ techBadge(signal.technology) ])
+                E('span', { 'id': 'sig-tech' }, [ techBadge(d.technology) ])
             ]),
             E('table', { 'style': 'width:100%;border-collapse:collapse' }, [
-                row('RSSI', E('span', { 'id': 'sig-rssi' }, signal.rssi != null ? signal.rssi + ' dBm' : '—')),
-                row('RSRP', E('div',  { 'id': 'sig-rsrp' }, [ signalBar(signal.rsrp) ])),
-                row('SINR', E('span', { 'id': 'sig-sinr' }, signal.sinr != null ? signal.sinr + ' dB'  : '—')),
-                row('RSRQ', E('span', { 'id': 'sig-rsrq' }, signal.rsrq != null ? signal.rsrq + ' dB'  : '—')),
-                row('Cell', E('span', { 'id': 'sig-cell' }, cell.raw || '—')),
+                row('RSSI', E('span', { 'id': 'sig-rssi' }, d.rssi != null ? d.rssi + ' dBm' : '—')),
+                row('RSRP', E('div',  { 'id': 'sig-rsrp' }, [ signalBar(d.rsrp) ])),
+                row('SINR', E('span', { 'id': 'sig-sinr' }, d.sinr != null ? d.sinr + ' dB'  : '—')),
+                row('RSRQ', E('span', { 'id': 'sig-rsrq' }, d.rsrq != null ? d.rsrq + ' dB'  : '—')),
+                row('Cell', E('span', { 'id': 'sig-cell' }, d.cell || '—')),
             ])
         ]);
 
         var bandsCard = E('div', { 'class': 'cbi-section' }, [
             E('h3', {}, 'Band Configuration'),
             E('table', { 'style': 'width:100%;border-collapse:collapse' }, [
-                row('Mode preference', bands.mode),
-                row('LTE bands',       bands.lte_bands),
-                row('5G NR bands',     bands.nr5g_bands),
+                row('Mode preference', d.mode),
+                row('LTE bands',       d.lte_bands),
+                row('5G NR bands',     d.nr5g_bands),
             ]),
             E('div', { 'style': 'margin-top:12px;display:flex;gap:8px;flex-wrap:wrap' }, [
                 E('input', {
@@ -177,20 +173,14 @@ return view.extend({
                 E('button', {
                     'class': 'btn cbi-button',
                     'click': function() {
-                        Promise.all([ callSignal(), callCell() ]).then(function(d) {
-                            updateSignal(d[0] || {}, d[1] || {});
-                        });
+                        callRefresh().then(function(r) { updateSignal(r || {}); });
                     }
                 }, 'Refresh Now')
             ])
         ]);
 
-        // Auto-refresh signal every 10 seconds — updates in-place via element IDs,
-        // no re-render (which would duplicate poll registrations).
         poll.add(function() {
-            return Promise.all([ callSignal(), callCell() ]).then(function(d) {
-                updateSignal(d[0] || {}, d[1] || {});
-            });
+            return callRefresh().then(function(r) { updateSignal(r || {}); });
         }, 10);
 
         return E('div', { 'id': 'rm520n-view' }, [
