@@ -1,0 +1,144 @@
+#!/bin/sh
+# rpcd backend for luci-app-rm520n
+# Handles JSON-RPC calls from LuCI, queries modem via AT commands.
+#
+# Method dispatch: reads {"method":"name","params":{}} from stdin,
+# writes JSON response to stdout.
+
+AT_PORT=""
+AT_BAUD="115200"
+TMPF="/tmp/_rm520n_rpcd_$$"
+
+_find_at_port() {
+    for p in /dev/ttyUSB2 /dev/ttyUSB3 /dev/ttyUSB1 /dev/ttyUSB0; do
+        [ -c "$p" ] && AT_PORT="$p" && return 0
+    done
+    return 1
+}
+
+_at() {
+    local cmd="$1"
+    local max="${2:-4}"
+    local dpid i
+    exec 3<>"$AT_PORT"
+    dd <&3 of="$TMPF" bs=1 count=256 2>/dev/null &
+    dpid=$!
+    printf '%s\r\n' "$cmd" >&3
+    i=0
+    while [ "$i" -lt "$max" ]; do
+        sleep 1; i=$(( i + 1 ))
+        grep -qE 'OK|ERROR' "$TMPF" 2>/dev/null && break
+    done
+    kill "$dpid" 2>/dev/null || true
+    wait "$dpid" 2>/dev/null || true
+    exec 3>&- 2>/dev/null || true
+    cat "$TMPF" 2>/dev/null
+    rm -f "$TMPF"
+}
+
+_json_str() { printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g;s/"/\\"/g')"; }
+
+# ── Method handlers ────────────────────────────────────────────────────────
+
+_method_status() {
+    _find_at_port || { printf '{"error":"AT port not found"}'; return; }
+
+    local fw reg creg c5greg imei
+    fw="$(_at "ATI" | grep -i 'revision' | head -1 | sed 's/.*Revision: *//'| tr -d '\r')"
+    imei="$(_at "AT+GSN" | grep -E '^[0-9]{15}' | head -1 | tr -d '\r')"
+    creg="$(_at "AT+CREG?" | grep '+CREG:' | head -1 | tr -d '\r')"
+    c5greg="$(_at "AT+C5GREG?" | grep '+C5GREG:' | head -1 | tr -d '\r')"
+
+    printf '{"firmware":%s,"imei":%s,"creg":%s,"c5greg":%s,"at_port":%s}' \
+        "$(_json_str "$fw")" \
+        "$(_json_str "$imei")" \
+        "$(_json_str "$creg")" \
+        "$(_json_str "$c5greg")" \
+        "$(_json_str "$AT_PORT")"
+}
+
+_method_signal() {
+    _find_at_port || { printf '{"error":"AT port not found"}'; return; }
+
+    local qcsq
+    qcsq="$(_at "AT+QCSQ" | grep '^\+QCSQ' | head -1 | sed 's/+QCSQ: //' | tr -d '\r"')"
+
+    local tech rssi rsrp sinr rsrq
+    tech="$(printf '%s' "$qcsq" | cut -d, -f1)"
+    rssi="$(printf '%s' "$qcsq" | cut -d, -f2)"
+    rsrp="$(printf '%s' "$qcsq" | cut -d, -f3)"
+    sinr="$(printf '%s' "$qcsq" | cut -d, -f4)"
+    rsrq="$(printf '%s' "$qcsq" | cut -d, -f5)"
+
+    printf '{"technology":%s,"rssi":%s,"rsrp":%s,"sinr":%s,"rsrq":%s}' \
+        "$(_json_str "$tech")" \
+        "${rssi:--}" \
+        "${rsrp:--}" \
+        "${sinr:--}" \
+        "${rsrq:--}"
+}
+
+_method_cell() {
+    _find_at_port || { printf '{"error":"AT port not found"}'; return; }
+
+    local cell
+    cell="$(_at 'AT+QENG="servingcell"' | grep '^\+QENG' | head -1 | tr -d '\r')"
+    printf '{"raw":%s}' "$(_json_str "$cell")"
+}
+
+_method_bands() {
+    _find_at_port || { printf '{"error":"AT port not found"}'; return; }
+
+    local lte_bands nr_bands
+    lte_bands="$(_at 'AT+QNWPREFCFG="lte_band"' | grep '^\+QNWPREFCFG' | head -1 | tr -d '\r')"
+    nr_bands="$(_at 'AT+QNWPREFCFG="nr5g_band"' | grep '^\+QNWPREFCFG' | head -1 | tr -d '\r')"
+    local mode
+    mode="$(_at 'AT+QNWPREFCFG="mode_pref"' | grep '^\+QNWPREFCFG' | head -1 | tr -d '\r')"
+
+    printf '{"lte_bands":%s,"nr5g_bands":%s,"mode":%s}' \
+        "$(_json_str "$lte_bands")" \
+        "$(_json_str "$nr_bands")" \
+        "$(_json_str "$mode")"
+}
+
+_method_set_bands() {
+    _find_at_port || { printf '{"error":"AT port not found"}'; return; }
+    local lte_band="$1" nr_band="$2"
+    [ -n "$lte_band" ] && _at "AT+QNWPREFCFG=\"lte_band\",${lte_band}" >/dev/null
+    [ -n "$nr_band"  ] && _at "AT+QNWPREFCFG=\"nr5g_band\",${nr_band}" >/dev/null
+    printf '{"result":"ok"}'
+}
+
+_method_reboot_modem() {
+    _find_at_port || { printf '{"error":"AT port not found"}'; return; }
+    _at 'AT+CFUN=1,1' >/dev/null
+    printf '{"result":"rebooting"}'
+}
+
+_method_set_apn() {
+    _find_at_port || { printf '{"error":"AT port not found"}'; return; }
+    local apn="$1"
+    [ -n "$apn" ] || { printf '{"error":"apn required"}'; return; }
+    _at "AT+CGDCONT=1,\"IPV4V6\",\"${apn}\"" >/dev/null
+    printf '{"result":"ok","apn":"%s"}' "$apn"
+}
+
+# ── JSON-RPC dispatcher ────────────────────────────────────────────────────
+
+case "$1" in
+    list)
+        printf '{"status":{},"signal":{},"cell":{},"bands":{},"set_bands":{"lte_band":"","nr_band":""},"reboot_modem":{},"set_apn":{"apn":""}}'
+        ;;
+    call)
+        case "$2" in
+            status)        _method_status ;;
+            signal)        _method_signal ;;
+            cell)          _method_cell ;;
+            bands)         _method_bands ;;
+            set_bands)     _method_set_bands "$(jsonfilter -e '@.lte_band' 2>/dev/null)" "$(jsonfilter -e '@.nr_band' 2>/dev/null)" ;;
+            reboot_modem)  _method_reboot_modem ;;
+            set_apn)       _method_set_apn "$(jsonfilter -e '@.apn' 2>/dev/null)" ;;
+            *)             printf '{"error":"unknown method"}' ;;
+        esac
+        ;;
+esac

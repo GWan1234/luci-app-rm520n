@@ -1,0 +1,15 @@
+{
+  "luci-app-rm520n": {
+    "description": "LuCI RM520NGL modem management access",
+    "read": {
+      "ubus": {
+        "rm520n": [ "status", "signal", "cell", "bands" ]
+      }
+    },
+    "write": {
+      "ubus": {
+        "rm520n": [ "set_bands", "reboot_modem", "set_apn" ]
+      }
+    }
+  }
+}
