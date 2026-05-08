@@ -48,23 +48,30 @@ _download() {
     done
 }
 
+_cp() {
+    local mode="$1" src="$2" dst="$3"
+    mkdir -p "$(dirname "$dst")"
+    cp "$src" "$dst"
+    chmod "$mode" "$dst"
+}
+
 _install_files() {
     local src="$1"
 
     printf '[INFO] Installing rpcd backend...\n'
-    install -Dm755 "${src}/root/usr/libexec/rpcd/rm520n" \
+    _cp 755 "${src}/root/usr/libexec/rpcd/rm520n" \
         /usr/libexec/rpcd/rm520n
 
     printf '[INFO] Installing LuCI menu entry...\n'
-    install -Dm644 "${src}/root/usr/share/luci/menu.d/rm520n.json" \
+    _cp 644 "${src}/root/usr/share/luci/menu.d/rm520n.json" \
         /usr/share/luci/menu.d/rm520n.json
 
     printf '[INFO] Installing rpcd ACL...\n'
-    install -Dm644 "${src}/root/usr/share/rpcd/acl.d/rm520n.json" \
+    _cp 644 "${src}/root/usr/share/rpcd/acl.d/rm520n.json" \
         /usr/share/rpcd/acl.d/rm520n.json
 
     printf '[INFO] Installing LuCI view...\n'
-    install -Dm644 "${src}/htdocs/luci-static/resources/view/rm520n/overview.js" \
+    _cp 644 "${src}/htdocs/luci-static/resources/view/rm520n/overview.js" \
         /www/luci-static/resources/view/rm520n/overview.js
 }
 
