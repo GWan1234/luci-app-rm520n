@@ -1,13 +1,9 @@
 #!/bin/sh
 # rpcd backend for luci-app-rm520n
 # Handles JSON-RPC calls from LuCI, queries modem via AT commands.
-#
-# Method dispatch: reads {"method":"name","params":{}} from stdin,
-# writes JSON response to stdout.
 
 AT_PORT=""
-AT_BAUD="115200"
-TMPF="/tmp/_rm520n_rpcd_$$"
+AT_LOCK="/tmp/.rm520n_at_lock"
 
 _find_at_port() {
     for p in /dev/ttyUSB2 /dev/ttyUSB3 /dev/ttyUSB1 /dev/ttyUSB0; do
@@ -16,35 +12,65 @@ _find_at_port() {
     return 1
 }
 
+# Atomic mkdir-based lock — serializes concurrent rpcd processes on the AT port.
+# Multiple parallel JS calls (Promise.all) each spawn a separate shell; without
+# this they interleave on the serial port and corrupt each other's responses.
+_at_lock() {
+    local tries=0
+    while ! mkdir "$AT_LOCK" 2>/dev/null; do
+        tries=$(( tries + 1 ))
+        [ "$tries" -ge 10 ] && return 1
+        sleep 1
+    done
+}
+
+_at_unlock() {
+    rmdir "$AT_LOCK" 2>/dev/null || true
+}
+
 _at() {
     local cmd="$1"
     local max="${2:-4}"
-    local dpid i
+    local tmpf="/tmp/_rm520n_at_$$"
+    local dpid i result
+
+    _at_lock || return 1
+
     exec 3<>"$AT_PORT"
-    dd <&3 of="$TMPF" bs=1 count=256 2>/dev/null &
+    dd <&3 of="$tmpf" bs=1 count=256 2>/dev/null &
     dpid=$!
     printf '%s\r\n' "$cmd" >&3
     i=0
     while [ "$i" -lt "$max" ]; do
         sleep 1; i=$(( i + 1 ))
-        grep -qE 'OK|ERROR' "$TMPF" 2>/dev/null && break
+        grep -qE 'OK|ERROR' "$tmpf" 2>/dev/null && break
     done
     kill "$dpid" 2>/dev/null || true
     wait "$dpid" 2>/dev/null || true
     exec 3>&- 2>/dev/null || true
-    cat "$TMPF" 2>/dev/null
-    rm -f "$TMPF"
+
+    result="$(cat "$tmpf" 2>/dev/null)"
+    rm -f "$tmpf"
+    _at_unlock
+
+    printf '%s' "$result"
 }
 
 _json_str() { printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g;s/"/\\"/g')"; }
+_json_num() {
+    case "$1" in
+        -[0-9]*|[0-9]*) printf '%s' "$1" ;;
+        *) printf 'null' ;;
+    esac
+}
 
 # ── Method handlers ────────────────────────────────────────────────────────
 
 _method_status() {
     _find_at_port || { printf '{"error":"AT port not found"}'; return; }
 
-    local fw reg creg c5greg imei
-    fw="$(_at "ATI" | grep -i 'revision' | head -1 | sed 's/.*Revision: *//'| tr -d '\r')"
+    local fw imei creg c5greg
+    fw="$(_at "ATI" | grep -i 'revision' | head -1 | sed 's/.*Revision: *//' | tr -d '\r')"
     imei="$(_at "AT+GSN" | grep -E '^[0-9]{15}' | head -1 | tr -d '\r')"
     creg="$(_at "AT+CREG?" | grep '+CREG:' | head -1 | tr -d '\r')"
     c5greg="$(_at "AT+C5GREG?" | grep '+C5GREG:' | head -1 | tr -d '\r')"
@@ -60,10 +86,8 @@ _method_status() {
 _method_signal() {
     _find_at_port || { printf '{"error":"AT port not found"}'; return; }
 
-    local qcsq
+    local qcsq tech rssi rsrp sinr rsrq
     qcsq="$(_at "AT+QCSQ" | grep '^\+QCSQ' | head -1 | sed 's/+QCSQ: //' | tr -d '\r"')"
-
-    local tech rssi rsrp sinr rsrq
     tech="$(printf '%s' "$qcsq" | cut -d, -f1)"
     rssi="$(printf '%s' "$qcsq" | cut -d, -f2)"
     rsrp="$(printf '%s' "$qcsq" | cut -d, -f3)"
@@ -72,10 +96,10 @@ _method_signal() {
 
     printf '{"technology":%s,"rssi":%s,"rsrp":%s,"sinr":%s,"rsrq":%s}' \
         "$(_json_str "$tech")" \
-        "${rssi:--}" \
-        "${rsrp:--}" \
-        "${sinr:--}" \
-        "${rsrq:--}"
+        "$(_json_num "$rssi")" \
+        "$(_json_num "$rsrp")" \
+        "$(_json_num "$sinr")" \
+        "$(_json_num "$rsrq")"
 }
 
 _method_cell() {
@@ -89,10 +113,9 @@ _method_cell() {
 _method_bands() {
     _find_at_port || { printf '{"error":"AT port not found"}'; return; }
 
-    local lte_bands nr_bands
+    local lte_bands nr_bands mode
     lte_bands="$(_at 'AT+QNWPREFCFG="lte_band"' | grep '^\+QNWPREFCFG' | head -1 | tr -d '\r')"
     nr_bands="$(_at 'AT+QNWPREFCFG="nr5g_band"' | grep '^\+QNWPREFCFG' | head -1 | tr -d '\r')"
-    local mode
     mode="$(_at 'AT+QNWPREFCFG="mode_pref"' | grep '^\+QNWPREFCFG' | head -1 | tr -d '\r')"
 
     printf '{"lte_bands":%s,"nr5g_bands":%s,"mode":%s}' \

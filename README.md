@@ -42,9 +42,9 @@ When the RM520NGL modem operates in **PCIe/GbE mode** (via the Waveshare carrier
 
 ## Installation
 
-**Option A — One-liner (curl):**
+**Option A — One-liner (wget, available on all OpenWrt installs):**
 ```sh
-curl -fsSL https://raw.githubusercontent.com/pajus1337/luci-app-rm520n/main/install.sh | sh
+wget -qO- https://raw.githubusercontent.com/pajus1337/luci-app-rm520n/main/install.sh | sh
 ```
 
 **Option B — Clone and run locally:**
