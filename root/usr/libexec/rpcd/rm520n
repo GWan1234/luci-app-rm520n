@@ -119,11 +119,31 @@ _parse_qrsrp() {
 
 # +QTEMP: "sensor",value  (multiple lines)
 # Sets globals: temp_xo temp_mdm temp_pa
+# Patterns are intentionally broad to cover firmware naming variations
+# (xo-therm vs xo-therm-buf, mdm-therm vs mdm-case-therm, pa-therm0 vs pa-therm1).
 _parse_qtemp() {
     local raw="$1"
     temp_xo="$( printf '%s' "$raw" | grep '"xo-therm'  | head -1 | cut -d, -f2 | tr -d ' \r')"
-    temp_mdm="$(printf '%s' "$raw" | grep '"mdm-case'  | head -1 | cut -d, -f2 | tr -d ' \r')"
-    temp_pa="$( printf '%s' "$raw" | grep '"pa-therm1' | head -1 | cut -d, -f2 | tr -d ' \r')"
+    temp_mdm="$(printf '%s' "$raw" | grep '"mdm'        | head -1 | cut -d, -f2 | tr -d ' \r')"
+    temp_pa="$( printf '%s' "$raw" | grep '"pa-therm'   | head -1 | cut -d, -f2 | tr -d ' \r')"
+}
+
+# +QNWINFO: "<duplex> <rat>","<plmn>","<rat> BAND <n>",<earfcn>
+# Sets globals: qnwinfo_rat qnwinfo_duplex qnwinfo_mcc qnwinfo_mnc qnwinfo_band qnwinfo_earfcn
+_parse_qnwinfo() {
+    local raw="$1" line data tech_str plmn_str band_str
+    line="$(printf '%s' "$raw" | grep '+QNWINFO:' | head -1)"
+    [ -z "$line" ] && return
+    data="$(printf '%s' "$line" | sed 's/+QNWINFO:[[:space:]]*//' | tr -d '"' | tr -d '\r')"
+    tech_str="$(  printf '%s' "$data" | cut -d, -f1)"
+    plmn_str="$(  printf '%s' "$data" | cut -d, -f2)"
+    band_str="$(  printf '%s' "$data" | cut -d, -f3)"
+    qnwinfo_earfcn="$(printf '%s' "$data" | cut -d, -f4)"
+    qnwinfo_band="$(printf '%s' "$band_str" | sed 's/.*BAND[[:space:]]*//')"
+    qnwinfo_duplex="$(printf '%s' "$tech_str" | awk '{print $1}')"
+    qnwinfo_rat="$(   printf '%s' "$tech_str" | awk '{print $2}')"
+    qnwinfo_mcc="$(   printf '%s' "$plmn_str" | cut -c1-3)"
+    qnwinfo_mnc="$(   printf '%s' "$plmn_str" | cut -c4-)"
 }
 
 # +COPS: 0,0,"Operator name",7
@@ -208,7 +228,7 @@ _method_full_status() {
     _at_lock      || { printf '{"error":"AT port busy"}';      return; }
 
     local fw imei creg_raw c5greg_raw
-    local qcsq_raw cell_raw qrsrp_raw qcainfo_raw qtemp_raw cops_raw qgdcnt_raw
+    local qcsq_raw cell_raw qrsrp_raw qcainfo_raw qtemp_raw cops_raw qgdcnt_raw qnwinfo_raw
     local lte_bands nr_bands mode
     local tech rssi rsrp sinr rsrq
     local qeng_rrc qeng_rat qeng_duplex qeng_mcc qeng_mnc
@@ -217,6 +237,7 @@ _method_full_status() {
     local rsrp_rx0 rsrp_rx1 rsrp_rx2 rsrp_rx3
     local temp_xo temp_mdm temp_pa
     local operator modem_tx modem_rx
+    local qnwinfo_rat qnwinfo_duplex qnwinfo_mcc qnwinfo_mnc qnwinfo_band qnwinfo_earfcn
     local creg c5greg ca_json
 
     fw="$(         _at "AT+GMR"                     | grep -E '^RM'       | head -1 | tr -d '\r')"
@@ -226,6 +247,7 @@ _method_full_status() {
     cops_raw="$(   _at "AT+COPS?"                   )"
     qcsq_raw="$(   _at "AT+QCSQ"                    | grep '^+QCSQ'       | head -1 | sed 's/+QCSQ: //' | tr -d '\r"')"
     cell_raw="$(   _at 'AT+QENG="servingcell"'      | grep '^+QENG'       | head -1 | tr -d '\r')"
+    qnwinfo_raw="$(_at "AT+QNWINFO"                 )"
     qrsrp_raw="$(  _at "AT+QRSRP"                   )"
     qcainfo_raw="$(_at "AT+QCAINFO"                 )"
     qtemp_raw="$(  _at "AT+QTEMP"               5   )"
@@ -236,12 +258,13 @@ _method_full_status() {
 
     _at_unlock
 
-    _parse_qcsq   "$qcsq_raw"
-    _parse_qeng   "$cell_raw"
-    _parse_qrsrp  "$qrsrp_raw"
-    _parse_qtemp  "$qtemp_raw"
-    _parse_cops   "$cops_raw"
-    _parse_qgdcnt "$qgdcnt_raw"
+    _parse_qcsq    "$qcsq_raw"
+    _parse_qeng    "$cell_raw"
+    _parse_qnwinfo "$qnwinfo_raw"
+    _parse_qrsrp   "$qrsrp_raw"
+    _parse_qtemp   "$qtemp_raw"
+    _parse_cops    "$cops_raw"
+    _parse_qgdcnt  "$qgdcnt_raw"
     creg="$(   _parse_reg_stat "$creg_raw")"
     c5greg="$( _parse_reg_stat "$c5greg_raw")"
     ca_json="$(_build_ca_json  "$qcainfo_raw")"
@@ -259,14 +282,14 @@ _method_full_status() {
     printf '"sinr":%s,'        "$(_json_num "$sinr")"
     printf '"rsrq":%s,'        "$(_json_num "$rsrq")"
     printf '"rrc_state":%s,'   "$(_json_str "$qeng_rrc")"
-    printf '"rat":%s,'         "$(_json_str "$qeng_rat")"
-    printf '"duplex":%s,'      "$(_json_str "$qeng_duplex")"
-    printf '"mcc":%s,'         "$(_json_str "$qeng_mcc")"
-    printf '"mnc":%s,'         "$(_json_str "$qeng_mnc")"
+    printf '"rat":%s,'         "$(_json_str "${qeng_rat:-$qnwinfo_rat}")"
+    printf '"duplex":%s,'      "$(_json_str "${qeng_duplex:-$qnwinfo_duplex}")"
+    printf '"mcc":%s,'         "$(_json_str "${qeng_mcc:-$qnwinfo_mcc}")"
+    printf '"mnc":%s,'         "$(_json_str "${qeng_mnc:-$qnwinfo_mnc}")"
     printf '"cell_id":%s,'     "$(_json_str "$qeng_cell_id")"
     printf '"pci":%s,'         "$(_json_num "$qeng_pci")"
-    printf '"earfcn":%s,'      "$(_json_num "$qeng_earfcn")"
-    printf '"band":%s,'        "$(_json_num "$qeng_band")"
+    printf '"earfcn":%s,'      "$(_json_num "${qeng_earfcn:-$qnwinfo_earfcn}")"
+    printf '"band":%s,'        "$(_json_num "${qeng_band:-$qnwinfo_band}")"
     printf '"tac":%s,'         "$(_json_str "$qeng_tac")"
     printf '"cqi":%s,'         "$(_json_num "$qeng_cqi")"
     printf '"tx_power":%s,'    "$(_json_num "$qeng_tx_power")"
