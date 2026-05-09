@@ -94,7 +94,7 @@ _method_full_status() {
     local fw imei creg_raw c5greg_raw creg c5greg qcsq cell lte_bands nr_bands mode
     local tech rssi rsrp sinr rsrq
 
-    fw="$(_at "ATI"                        | grep -i 'revision'    | head -1 | sed 's/.*Revision: *//' | tr -d '\r')"
+    fw="$(_at "AT+GMR"                     | grep -E '^RM'         | head -1 | tr -d '\r')"
     imei="$(_at "AT+GSN"                   | grep -E '^[0-9]{15}'  | head -1 | tr -d '\r')"
     creg_raw="$(_at "AT+CREG?"             | grep '+CREG:'         | head -1 | tr -d '\r')"
     c5greg_raw="$(_at "AT+C5GREG?"         | grep '+C5GREG:'       | head -1 | tr -d '\r')"
@@ -142,7 +142,7 @@ _method_status() {
     _find_at_port || { printf '{"error":"AT port not found"}'; return; }
     _at_lock      || { printf '{"error":"AT port busy"}';      return; }
     local fw imei creg_raw c5greg_raw creg c5greg
-    fw="$(_at "ATI"            | grep -i 'revision' | head -1 | sed 's/.*Revision: *//' | tr -d '\r')"
+    fw="$(_at "AT+GMR"         | grep -E '^RM'       | head -1 | tr -d '\r')"
     imei="$(_at "AT+GSN"       | grep -E '^[0-9]{15}' | head -1 | tr -d '\r')"
     creg_raw="$(_at "AT+CREG?"    | grep '+CREG:'   | head -1 | tr -d '\r')"
     c5greg_raw="$(_at "AT+C5GREG?" | grep '+C5GREG:' | head -1 | tr -d '\r')"
