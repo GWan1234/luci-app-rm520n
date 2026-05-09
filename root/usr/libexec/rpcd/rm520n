@@ -98,11 +98,11 @@ _method_full_status() {
     imei="$(_at "AT+GSN"                   | grep -E '^[0-9]{15}'  | head -1 | tr -d '\r')"
     creg_raw="$(_at "AT+CREG?"             | grep '+CREG:'         | head -1 | tr -d '\r')"
     c5greg_raw="$(_at "AT+C5GREG?"         | grep '+C5GREG:'       | head -1 | tr -d '\r')"
-    qcsq="$(_at "AT+QCSQ"                  | grep '^\+QCSQ'        | head -1 | sed 's/+QCSQ: //' | tr -d '\r"')"
-    cell="$(_at 'AT+QENG="servingcell"'    | grep '^\+QENG'        | head -1 | tr -d '\r')"
-    lte_bands="$(_at 'AT+QNWPREFCFG="lte_band"'   | grep '^\+QNWPREFCFG' | head -1 | tr -d '\r')"
-    nr_bands="$(_at  'AT+QNWPREFCFG="nr5g_band"'  | grep '^\+QNWPREFCFG' | head -1 | tr -d '\r')"
-    mode="$(_at      'AT+QNWPREFCFG="mode_pref"'  | grep '^\+QNWPREFCFG' | head -1 | tr -d '\r')"
+    qcsq="$(_at "AT+QCSQ"                  | grep '^+QCSQ'        | head -1 | sed 's/+QCSQ: //' | tr -d '\r"')"
+    cell="$(_at 'AT+QENG="servingcell"'    | grep '^+QENG'        | head -1 | tr -d '\r')"
+    lte_bands="$(_at 'AT+QNWPREFCFG="lte_band"'   | grep '^+QNWPREFCFG' | head -1 | tr -d '\r' | sed 's/.*,//')"
+    nr_bands="$(_at  'AT+QNWPREFCFG="nr5g_band"'  | grep '^+QNWPREFCFG' | head -1 | tr -d '\r' | sed 's/.*,//')"
+    mode="$(_at      'AT+QNWPREFCFG="mode_pref"'  | grep '^+QNWPREFCFG' | head -1 | tr -d '\r' | sed 's/.*,//')"
 
     _at_unlock
     _parse_qcsq "$qcsq"
@@ -125,8 +125,8 @@ _method_refresh() {
     _at_lock      || { printf '{"error":"AT port busy"}';      return; }
 
     local qcsq cell tech rssi rsrp sinr rsrq
-    qcsq="$(_at "AT+QCSQ"               | grep '^\+QCSQ' | head -1 | sed 's/+QCSQ: //' | tr -d '\r"')"
-    cell="$(_at 'AT+QENG="servingcell"' | grep '^\+QENG' | head -1 | tr -d '\r')"
+    qcsq="$(_at "AT+QCSQ"               | grep '^+QCSQ' | head -1 | sed 's/+QCSQ: //' | tr -d '\r"')"
+    cell="$(_at 'AT+QENG="servingcell"' | grep '^+QENG' | head -1 | tr -d '\r')"
 
     _at_unlock
     _parse_qcsq "$qcsq"
@@ -158,7 +158,7 @@ _method_signal() {
     _find_at_port || { printf '{"error":"AT port not found"}'; return; }
     _at_lock      || { printf '{"error":"AT port busy"}';      return; }
     local qcsq tech rssi rsrp sinr rsrq
-    qcsq="$(_at "AT+QCSQ" | grep '^\+QCSQ' | head -1 | sed 's/+QCSQ: //' | tr -d '\r"')"
+    qcsq="$(_at "AT+QCSQ" | grep '^+QCSQ' | head -1 | sed 's/+QCSQ: //' | tr -d '\r"')"
     _at_unlock
     _parse_qcsq "$qcsq"
     printf '{"technology":%s,"rssi":%s,"rsrp":%s,"sinr":%s,"rsrq":%s}' \
@@ -170,7 +170,7 @@ _method_cell() {
     _find_at_port || { printf '{"error":"AT port not found"}'; return; }
     _at_lock      || { printf '{"error":"AT port busy"}';      return; }
     local cell
-    cell="$(_at 'AT+QENG="servingcell"' | grep '^\+QENG' | head -1 | tr -d '\r')"
+    cell="$(_at 'AT+QENG="servingcell"' | grep '^+QENG' | head -1 | tr -d '\r')"
     _at_unlock
     printf '{"raw":%s}' "$(_json_str "$cell")"
 }
@@ -179,9 +179,9 @@ _method_bands() {
     _find_at_port || { printf '{"error":"AT port not found"}'; return; }
     _at_lock      || { printf '{"error":"AT port busy"}';      return; }
     local lte_bands nr_bands mode
-    lte_bands="$(_at 'AT+QNWPREFCFG="lte_band"'  | grep '^\+QNWPREFCFG' | head -1 | tr -d '\r')"
-    nr_bands="$(_at  'AT+QNWPREFCFG="nr5g_band"' | grep '^\+QNWPREFCFG' | head -1 | tr -d '\r')"
-    mode="$(_at      'AT+QNWPREFCFG="mode_pref"' | grep '^\+QNWPREFCFG' | head -1 | tr -d '\r')"
+    lte_bands="$(_at 'AT+QNWPREFCFG="lte_band"'  | grep '^+QNWPREFCFG' | head -1 | tr -d '\r' | sed 's/.*,//')"
+    nr_bands="$(_at  'AT+QNWPREFCFG="nr5g_band"' | grep '^+QNWPREFCFG' | head -1 | tr -d '\r' | sed 's/.*,//')"
+    mode="$(_at      'AT+QNWPREFCFG="mode_pref"' | grep '^+QNWPREFCFG' | head -1 | tr -d '\r' | sed 's/.*,//')"
     _at_unlock
     printf '{"lte_bands":%s,"nr5g_bands":%s,"mode":%s}' \
         "$(_json_str "$lte_bands")" "$(_json_str "$nr_bands")" "$(_json_str "$mode")"
