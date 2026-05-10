@@ -12,15 +12,22 @@ _find_at_port() {
 }
 
 _at_lock() {
-    local tries=0
+    local tries=0 owner
     while ! mkdir "$AT_LOCK" 2>/dev/null; do
+        # If the owning process is dead, the lock is stale — remove it
+        owner="$(cat "$AT_LOCK/pid" 2>/dev/null)"
+        if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
+            rm -rf "$AT_LOCK" 2>/dev/null
+            continue
+        fi
         tries=$(( tries + 1 ))
-        [ "$tries" -ge 30 ] && return 1
+        [ "$tries" -ge 10 ] && return 1
         sleep 1
     done
+    printf '%s' "$$" > "$AT_LOCK/pid"
 }
 
-_at_unlock() { rmdir "$AT_LOCK" 2>/dev/null || true; }
+_at_unlock() { rm -rf "$AT_LOCK" 2>/dev/null || true; }
 
 # Send one AT command and return the full modem response.
 #
@@ -266,11 +273,11 @@ _method_full_status() {
     printf 'AT+QNWPREFCFG="mode_pref"\r\n'     >&3
 
     # Wait until all 15 commands have responded (each ends with OK or ERROR),
-    # up to 8 seconds total.
+    # up to 8 seconds total. Also catches +CME ERROR responses.
     i=0
     while [ "$i" -lt 8 ]; do
         sleep 1; i=$(( i + 1 ))
-        [ "$(grep -cE '^(OK|ERROR)' "$tmpf" 2>/dev/null || echo 0)" -ge 15 ] && break
+        [ "$(grep -cE '^(OK|ERROR|\+CME ERROR)' "$tmpf" 2>/dev/null || echo 0)" -ge 15 ] && break
     done
 
     kill "$dpid" 2>/dev/null || true
@@ -280,6 +287,9 @@ _method_full_status() {
 
     raw="$(cat "$tmpf" 2>/dev/null)"
     rm -f "$tmpf"
+
+    # If modem returned no data at all — AT port present but modem not responding
+    [ -z "$raw" ] && { printf '{"error":"modem not responding"}'; return; }
 
     # Extract per-command data from the combined response
     fw="$(        printf '%s' "$raw" | grep -E '^RM'        | head -1 | tr -d '\r')"
@@ -370,7 +380,7 @@ _method_refresh() {
     i=0
     while [ "$i" -lt 4 ]; do
         sleep 1; i=$(( i + 1 ))
-        [ "$(grep -cE '^(OK|ERROR)' "$tmpf" 2>/dev/null || echo 0)" -ge 3 ] && break
+        [ "$(grep -cE '^(OK|ERROR|\+CME ERROR)' "$tmpf" 2>/dev/null || echo 0)" -ge 3 ] && break
     done
 
     kill "$dpid" 2>/dev/null || true
@@ -380,6 +390,8 @@ _method_refresh() {
 
     raw="$(cat "$tmpf" 2>/dev/null)"
     rm -f "$tmpf"
+
+    [ -z "$raw" ] && { printf '{"error":"modem not responding"}'; return; }
 
     qcsq_raw="$(printf '%s' "$raw" | grep '^+QCSQ' | head -1 | sed 's/+QCSQ: //' | tr -d '\r"')"
     cell_raw="$(printf '%s' "$raw" | grep '^+QENG' | head -1 | tr -d '\r')"
