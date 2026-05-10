@@ -39,8 +39,8 @@ _at() {
     dpid=$!
     printf '%s\r\n' "$cmd" >&3
     i=0
-    while [ "$i" -lt "$max" ]; do
-        sleep 1; i=$(( i + 1 ))
+    while [ "$i" -lt "$(( max * 2 ))" ]; do
+        sleep 0.5; i=$(( i + 1 ))
         grep -qE 'OK|ERROR|NO CARRIER' "$tmpf" 2>/dev/null && break
     done
     kill "$dpid" 2>/dev/null || true
