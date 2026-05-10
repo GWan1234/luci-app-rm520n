@@ -43,7 +43,8 @@ _at() {
     local cmd="$1" max="${2:-4}" tmpf="/tmp/_rm520n_at_$$" dpid i result
 
     exec 3<>"$AT_PORT"
-    dd <&3 of="$tmpf" bs=1 count=4096 2>/dev/null &
+    stty raw -F "$AT_PORT" 2>/dev/null || true
+    dd <&3 of="$tmpf" bs=4096 count=4 2>/dev/null &
     dpid=$!
     printf '%s\r\n' "$cmd" >&3
     i=0
@@ -253,7 +254,8 @@ _method_full_status() {
     local creg c5greg ca_json
 
     exec 3<>"$AT_PORT"
-    dd <&3 of="$tmpf" bs=1 count=65536 2>/dev/null &
+    stty raw -F "$AT_PORT" 2>/dev/null || true
+    dd <&3 of="$tmpf" bs=4096 count=16 2>/dev/null &
     dpid=$!
 
     # Send all commands without waiting — modem processes them in order
@@ -370,7 +372,8 @@ _method_refresh() {
     local rsrp_rx0 rsrp_rx1 rsrp_rx2 rsrp_rx3
 
     exec 3<>"$AT_PORT"
-    dd <&3 of="$tmpf" bs=1 count=16384 2>/dev/null &
+    stty raw -F "$AT_PORT" 2>/dev/null || true
+    dd <&3 of="$tmpf" bs=4096 count=4 2>/dev/null &
     dpid=$!
 
     printf 'AT+QCSQ\r\n'               >&3
