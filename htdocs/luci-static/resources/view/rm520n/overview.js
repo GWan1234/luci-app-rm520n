@@ -249,7 +249,7 @@ return view.extend({
                         c.rsrp != null
                             ? E('span', { 'style': 'color:' + qualityColor(c.rsrp) }, c.rsrp + ' dBm')
                             : null,
-                    ]);
+                    ].filter(Boolean));
                 }))
             ]);
         }
