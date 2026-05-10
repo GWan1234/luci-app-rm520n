@@ -44,7 +44,7 @@ _at() {
 
     exec 3<>"$AT_PORT"
     stty raw -F "$AT_PORT" 2>/dev/null || true
-    dd <&3 of="$tmpf" bs=4096 count=4 2>/dev/null &
+    dd <&3 of="$tmpf" bs=4096 count=65536 2>/dev/null &
     dpid=$!
     printf '%s\r\n' "$cmd" >&3
     i=0
@@ -255,7 +255,7 @@ _method_full_status() {
 
     exec 3<>"$AT_PORT"
     stty raw -F "$AT_PORT" 2>/dev/null || true
-    dd <&3 of="$tmpf" bs=4096 count=16 2>/dev/null &
+    dd <&3 of="$tmpf" bs=4096 count=65536 2>/dev/null &
     dpid=$!
 
     # Send all commands without waiting — modem processes them in order
@@ -373,7 +373,7 @@ _method_refresh() {
 
     exec 3<>"$AT_PORT"
     stty raw -F "$AT_PORT" 2>/dev/null || true
-    dd <&3 of="$tmpf" bs=4096 count=4 2>/dev/null &
+    dd <&3 of="$tmpf" bs=4096 count=65536 2>/dev/null &
     dpid=$!
 
     printf 'AT+QCSQ\r\n'               >&3
