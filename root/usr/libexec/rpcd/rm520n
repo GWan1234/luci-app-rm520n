@@ -16,7 +16,8 @@ _at_lock() {
     while ! mkdir "$AT_LOCK" 2>/dev/null; do
         # If the owning process is dead, the lock is stale — remove it
         owner="$(cat "$AT_LOCK/pid" 2>/dev/null)"
-        if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
+        # Stale if: no pid file (old lock format), or pid file references a dead process
+        if [ -z "$owner" ] || ! kill -0 "$owner" 2>/dev/null; then
             rm -rf "$AT_LOCK" 2>/dev/null
             continue
         fi
