@@ -137,6 +137,7 @@ _build_temp_json() {
         _data="$(printf '%s' "$_line" | sed 's/+QTEMP:[[:space:]]*//' | tr -d '"' | tr -d '\r')"
         _name="$(printf '%s' "$_data" | cut -d, -f1)"
         _val="$( printf '%s' "$_data" | cut -d, -f2 | tr -d ' ')"
+        [ "$_val" = "0" ] || [ "$_val" = "-273" ] && continue
         printf '%s|%s\n' "$_name" "$_val"
     done > "$tmpf"
     if [ -s "$tmpf" ]; then
