@@ -128,10 +128,11 @@ function cellmapperUrl(mcc, mnc, cellId, rat) {
     var ci = parseInt(cellId, 16);
     if (isNaN(ci)) return null;
     var type = (rat && rat.indexOf('NR') >= 0) ? 'NR' : 'LTE';
+    var searchId = (type === 'LTE') ? (ci >> 8) : ci;
     return 'https://www.cellmapper.net/map?MCC=' + mcc
         + '&MNC=' + parseInt(mnc)
         + '&type=' + type
-        + '&searchCellId=' + ci;
+        + '&searchCellId=' + searchId;
 }
 
 function techBadge(tech) {
