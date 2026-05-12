@@ -18,14 +18,21 @@ When the RM520NGL modem operates in **PCIe/GbE mode** (via the Waveshare carrier
 
 ## Features
 
-- **Signal dashboard** — RSRP bar chart with colour coding (green/orange/red), RSSI, SINR, RSRQ
-- **Technology badge** — live indicator: `LTE`, `5G NR-NSA`, `5G NR-SA`
-- **Modem info** — firmware version, IMEI, LTE and 5G NR registration status
-- **Serving cell details** — raw `AT+QENG="servingcell"` output (band, EARFCN, Cell ID)
-- **Band locking** — set LTE and 5G NR band masks via `AT+QNWPREFCFG`
+- **Signal dashboard** — RSRP bar chart with colour coding, RSSI, SINR, RSRQ; auto-refreshed every 10 s
+- **Signal quality badge** — combined RSRP + SINR score: Poor / Fair / Good / Very Good / Excellent
+- **Technology badge** — live indicator: `LTE`, `NR5G-NSA`, `NR5G-SA`
+- **Modem info** — firmware version, IMEI, LTE and 5G NR registration status, operator, MCC/MNC
+- **Cell Info** — RRC state, band, duplex, EARFCN, PCI, TAC; fallbacks from QNWINFO/QCAINFO/CEREG for NOCONN mode
+- **Cell ID block** — hex + decimal ECI, decoded eNB ID and sector, direct **CellMapper** deep-link
+- **Carrier Aggregation** — lists PCC/SCC with band, EARFCN, PCI, RSRP per component carrier
+- **Per-antenna RSRP** — RX0–RX3 individual signal levels with colour coding
+- **Temperature panel** — all active modem sensors with colour-coded values (green / amber / orange / red)
+- **Data counters** — modem-side TX/RX byte totals via `AT+QGDCNT?`
+- **Band configuration** — toggle chip buttons per LTE/NR band, All/None shortcuts, Apply per RAT, Reset All Bands
+- **Network mode** — switch between AUTO / LTE / NR5G / LTE:NR5G
 - **APN configuration** — change APN without touching UCI
-- **Modem reboot** — with confirmation dialog
-- **Auto-refresh** — signal and cell info update every 10 seconds
+- **Reconnect** — soft reconnect (CFUN=4 → CFUN=1, ~5 s downtime) with confirmation dialog
+- **Modem reboot** — full restart (CFUN=1,1, ~20 s) with confirmation dialog
 
 ---
 
@@ -85,7 +92,7 @@ LuCI browser (JavaScript view)
 | File | Description |
 |---|---|
 | `root/usr/libexec/rpcd/rm520n` | Shell script backend — handles JSON-RPC calls, queries modem via AT |
-| `htdocs/.../view/rm520n/overview.js` | LuCI JavaScript view — signal bars, controls, auto-refresh |
+| `htdocs/.../view/rm520n/overview.js` | LuCI JavaScript view — cards, signal bars, controls, auto-refresh |
 | `root/usr/share/luci/menu.d/rm520n.json` | Registers the page under Network menu |
 | `root/usr/share/rpcd/acl.d/rm520n.json` | rpcd access control list |
 
@@ -93,25 +100,29 @@ LuCI browser (JavaScript view)
 
 ## Available rpcd Methods
 
-| Method | Description |
-|---|---|
-| `status` | Firmware version, IMEI, LTE/5G registration |
-| `signal` | RSSI, RSRP, SINR, RSRQ, technology |
-| `cell` | Raw serving cell info (`AT+QENG="servingcell"`) |
-| `bands` | Current LTE/NR band config and mode preference |
-| `set_bands` | Lock to specific LTE and/or 5G NR bands |
-| `set_apn` | Set PDP context APN (`AT+CGDCONT`) |
-| `reboot_modem` | Send `AT+CFUN=1,1` to reboot modem |
+| Method | Type | Description |
+|---|---|---|
+| `full_status` | read | All modem data in one call — used on page load |
+| `refresh` | read | Fast refresh: signal, cell info, CA, per-antenna RSRP (10 s poll) |
+| `bands` | read | Current LTE/NR band masks and mode preference |
+| `set_bands` | write | Lock to specific LTE and/or NR bands (`AT+QNWPREFCFG`) |
+| `reset_bands` | write | Restore all LTE and NR bands to factory defaults |
+| `set_mode` | write | Set network mode preference (AUTO/LTE/NR5G/LTE:NR5G) |
+| `set_apn` | write | Set PDP context APN (`AT+CGDCONT`) |
+| `reconnect` | write | Soft reconnect: CFUN=4, sleep 3 s, CFUN=1 |
+| `reboot_modem` | write | Full modem restart (`AT+CFUN=1,1`) |
 
 ---
 
 ## Signal Quality Reference
 
-| Metric | Good | Fair | Poor |
-|---|---|---|---|
-| RSRP | > -80 dBm | -80 to -100 dBm | < -100 dBm |
-| SINR | > 20 dB | 0 to 20 dB | < 0 dB |
-| RSRQ | > -10 dB | -10 to -15 dB | < -15 dB |
+| Metric | Excellent | Very Good | Good | Fair | Poor |
+|---|---|---|---|---|---|
+| RSRP | > −80 dBm | > −90 dBm | > −100 dBm | > −110 dBm | ≤ −110 dBm |
+| SINR (modifier) | — | — | +1 score if ≥ 10 dB | — | −1 score if < 0 dB |
+| RSRQ (display) | > −10 dB | > −15 dB | > −20 dB | ≤ −20 dB | — |
+
+The badge score (1–5) is RSRP-based, then adjusted ±1 by SINR.
 
 ---
 
@@ -126,12 +137,12 @@ ls /dev/ttyUSB*
 
 **Test AT communication manually:**
 ```sh
+stty -F /dev/ttyUSB2 -opost -onlcr -icrnl min 0 time 3
 exec 3<>/dev/ttyUSB2
-dd <&3 of=/tmp/at_test bs=1 count=64 2>/dev/null &
 printf 'AT\r\n' >&3
-sleep 2; kill %1; exec 3>&-
-cat /tmp/at_test
-# Should contain: OK
+dd <&3 bs=4096 count=1 2>/dev/null
+exec 3>&-
+# Should output: OK
 ```
 
 **Reload rpcd after manual file changes:**
@@ -140,6 +151,9 @@ cat /tmp/at_test
 rm -rf /tmp/luci-indexcache /tmp/luci-modulecache
 ```
 
+**Band/EARFCN show `—` in Cell Info:**
+The modem enters `NOCONN` state on the AT port when data runs over PCIe/GbE. `AT+QENG="servingcell"` returns no cell data in this state. The app falls back to `AT+QNWINFO` (band/EARFCN) and `AT+QCAINFO` (PCI) automatically.
+
 ---
 
 ## Compatibility
@@ -147,7 +161,7 @@ rm -rf /tmp/luci-indexcache /tmp/luci-modulecache
 | Component | Tested version |
 |---|---|
 | OpenWrt | 25.12.3 |
-| Modem firmware | RM520NGLAAR03A01M4G |
+| Modem firmware | RM520NGLAAR03A03M4G |
 | LuCI | 26.x (OpenWrt 25.12 default) |
 
 ---
