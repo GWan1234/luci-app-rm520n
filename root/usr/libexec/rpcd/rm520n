@@ -14,9 +14,7 @@ _find_at_port() {
 _at_lock() {
     local tries=0 owner
     while ! mkdir "$AT_LOCK" 2>/dev/null; do
-        # If the owning process is dead, the lock is stale — remove it
         owner="$(cat "$AT_LOCK/pid" 2>/dev/null)"
-        # Stale if: no pid file (old lock format), or pid file references a dead process
         if [ -z "$owner" ] || ! kill -0 "$owner" 2>/dev/null; then
             rm -rf "$AT_LOCK" 2>/dev/null
             continue
@@ -30,35 +28,40 @@ _at_lock() {
 
 _at_unlock() { rm -rf "$AT_LOCK" 2>/dev/null || true; }
 
-# Send one AT command and return the full modem response.
-#
-# Opens and closes the tty fd on every call.  On Linux, closing the last
-# file descriptor to a tty causes the kernel to flush the line-discipline
-# input queue.  This prevents leftover bytes from a previous response
-# from contaminating the next read.
-#
-# Caller must hold _at_lock for the duration of the containing method so
-# the 10-second poll cannot interleave between sequential calls.
+# Configure tty, send one AT command, read until OK/ERROR/CME ERROR or timeout.
+# Opens and closes fd3 per call. Safe for use by individual debug methods.
 _at() {
-    local cmd="$1" max="${2:-4}" tmpf="/tmp/_rm520n_at_$$" dpid i result
-
+    local cmd="$1" max="${2:-4}" i=0
+    local tmpf="/tmp/_rm520n_at_$$"
+    : > "$tmpf"
+    stty -F "$AT_PORT" -opost -onlcr -icrnl min 0 time 3 2>/dev/null || true
     exec 3<>"$AT_PORT"
-    stty raw -F "$AT_PORT" 2>/dev/null || true
-    dd <&3 of="$tmpf" bs=4096 count=65536 2>/dev/null &
-    dpid=$!
     printf '%s\r\n' "$cmd" >&3
-    i=0
     while [ "$i" -lt "$max" ]; do
-        sleep 1; i=$(( i + 1 ))
-        grep -qE 'OK|ERROR|NO CARRIER' "$tmpf" 2>/dev/null && break
+        dd <&3 bs=4096 count=1 2>/dev/null >> "$tmpf"
+        grep -qE '^(OK|ERROR|\+CME ERROR)' "$tmpf" 2>/dev/null && break
+        i=$(( i + 1 ))
     done
-    kill "$dpid" 2>/dev/null || true
-    wait "$dpid" 2>/dev/null || true
-    exec 3>&- 2>/dev/null || true
-
-    result="$(cat "$tmpf" 2>/dev/null)"
+    exec 3>&-
+    cat "$tmpf"
     rm -f "$tmpf"
-    printf '%s' "$result"
+}
+
+# Send one AT command on an already-open fd3 with tty already configured.
+# Caller must call stty + exec 3<> before the first _at_seq call and exec 3>&-
+# after the last one. VTIME=3 (300ms) per dd read; max reads before giving up.
+_at_seq() {
+    local cmd="$1" max="${2:-6}" i=0
+    local tmpf="/tmp/_rm520n_sq_$$"
+    : > "$tmpf"
+    printf '%s\r\n' "$cmd" >&3
+    while [ "$i" -lt "$max" ]; do
+        dd <&3 bs=4096 count=1 2>/dev/null >> "$tmpf"
+        grep -qE '^(OK|ERROR|\+CME ERROR)' "$tmpf" 2>/dev/null && break
+        i=$(( i + 1 ))
+    done
+    cat "$tmpf"
+    rm -f "$tmpf"
 }
 
 _json_str() { printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g;s/"/\\"/g')"; }
@@ -128,8 +131,6 @@ _parse_qrsrp() {
 
 # +QTEMP: "sensor",value  (multiple lines)
 # Sets globals: temp_xo temp_mdm temp_pa
-# Patterns are intentionally broad to cover firmware naming variations
-# (xo-therm vs xo-therm-buf, mdm-therm vs mdm-case-therm, pa-therm0 vs pa-therm1).
 _parse_qtemp() {
     local raw="$1"
     temp_xo="$( printf '%s' "$raw" | grep '"xo-therm'  | head -1 | cut -d, -f2 | tr -d ' \r')"
@@ -232,91 +233,68 @@ _parse_reg_stat() {
 # ── Combined methods ──────────────────────────────────────────────────────────
 
 # Full status — used on page load.
-# All 15 AT commands are sent in one locked session without waiting between
-# them. The modem queues and processes them in order, so we only need to
-# sleep once (waiting for the last response) instead of sleeping once per
-# command. Typical latency: ~2s instead of ~15s.
+# Sends 15 AT commands sequentially, each isolated: response captured before
+# the next command is sent. tty configured with VTIME=3 (300ms read timeout)
+# so each dd count=1 read returns promptly when the modem responds.
 _method_full_status() {
     _find_at_port || { printf '{"error":"AT port not found"}'; return; }
     _at_lock      || { printf '{"error":"AT port busy"}';      return; }
 
-    local tmpf="/tmp/_rm520n_fs_$$" dpid i raw
-    local fw imei creg_raw c5greg_raw qcsq_raw cell_raw
-    local lte_bands nr_bands mode
+    local raw_gmr raw_gsn raw_creg raw_c5greg raw_cops raw_qcsq raw_qeng
+    local raw_qnwinfo raw_qrsrp raw_qcainfo raw_qtemp raw_qgdcnt
+    local raw_lte raw_nr raw_mode
+    local fw imei creg_raw c5greg_raw qcsq_raw cell_raw lte_bands nr_bands mode
     local tech rssi rsrp sinr rsrq
     local qeng_rrc qeng_rat qeng_duplex qeng_mcc qeng_mnc
     local qeng_cell_id qeng_pci qeng_earfcn qeng_band qeng_tac
     local qeng_rsrp qeng_rsrq qeng_rssi qeng_sinr qeng_cqi qeng_tx_power
     local rsrp_rx0 rsrp_rx1 rsrp_rx2 rsrp_rx3
-    local temp_xo temp_mdm temp_pa
-    local operator modem_tx modem_rx
+    local temp_xo temp_mdm temp_pa operator modem_tx modem_rx
     local qnwinfo_rat qnwinfo_duplex qnwinfo_mcc qnwinfo_mnc qnwinfo_band qnwinfo_earfcn
     local creg c5greg ca_json
 
+    stty -F "$AT_PORT" -opost -onlcr -icrnl min 0 time 3 2>/dev/null || true
     exec 3<>"$AT_PORT"
-    stty raw -F "$AT_PORT" 2>/dev/null || true
-    dd <&3 of="$tmpf" bs=4096 count=65536 2>/dev/null &
-    dpid=$!
 
-    # Send all commands without waiting — modem processes them in order
-    printf 'AT+GMR\r\n'                        >&3
-    printf 'AT+GSN\r\n'                        >&3
-    printf 'AT+CREG?\r\n'                      >&3
-    printf 'AT+C5GREG?\r\n'                    >&3
-    printf 'AT+COPS?\r\n'                      >&3
-    printf 'AT+QCSQ\r\n'                       >&3
-    printf 'AT+QENG="servingcell"\r\n'         >&3
-    printf 'AT+QNWINFO\r\n'                    >&3
-    printf 'AT+QRSRP\r\n'                      >&3
-    printf 'AT+QCAINFO\r\n'                    >&3
-    printf 'AT+QTEMP\r\n'                      >&3
-    printf 'AT+QGDCNT?\r\n'                    >&3
-    printf 'AT+QNWPREFCFG="lte_band"\r\n'      >&3
-    printf 'AT+QNWPREFCFG="nr5g_band"\r\n'     >&3
-    printf 'AT+QNWPREFCFG="mode_pref"\r\n'     >&3
+    raw_gmr="$(    _at_seq 'AT+GMR')"
+    raw_gsn="$(    _at_seq 'AT+GSN')"
+    raw_creg="$(   _at_seq 'AT+CREG?')"
+    raw_c5greg="$( _at_seq 'AT+C5GREG?')"
+    raw_cops="$(   _at_seq 'AT+COPS?')"
+    raw_qcsq="$(   _at_seq 'AT+QCSQ')"
+    raw_qeng="$(   _at_seq 'AT+QENG="servingcell"')"
+    raw_qnwinfo="$(_at_seq 'AT+QNWINFO')"
+    raw_qrsrp="$(  _at_seq 'AT+QRSRP')"
+    raw_qcainfo="$(_at_seq 'AT+QCAINFO')"
+    raw_qtemp="$(  _at_seq 'AT+QTEMP')"
+    raw_qgdcnt="$( _at_seq 'AT+QGDCNT?')"
+    raw_lte="$(    _at_seq 'AT+QNWPREFCFG="lte_band"')"
+    raw_nr="$(     _at_seq 'AT+QNWPREFCFG="nr5g_band"')"
+    raw_mode="$(   _at_seq 'AT+QNWPREFCFG="mode_pref"')"
 
-    # Wait until all 15 commands have responded (each ends with OK or ERROR),
-    # up to 8 seconds total. Also catches +CME ERROR responses.
-    i=0
-    while [ "$i" -lt 8 ]; do
-        sleep 1; i=$(( i + 1 ))
-        [ "$(grep -cE '^(OK|ERROR|\+CME ERROR)' "$tmpf" 2>/dev/null || echo 0)" -ge 15 ] && break
-    done
-
-    kill "$dpid" 2>/dev/null || true
-    wait "$dpid" 2>/dev/null || true
-    exec 3>&- 2>/dev/null || true
+    exec 3>&-
     _at_unlock
 
-    raw="$(cat "$tmpf" 2>/dev/null)"
-    rm -f "$tmpf"
+    fw="$(        printf '%s' "$raw_gmr"    | grep -E '^RM'        | head -1 | tr -d '\r')"
+    imei="$(      printf '%s' "$raw_gsn"    | grep -E '^[0-9]{15}' | head -1 | tr -d '\r')"
+    creg_raw="$(  printf '%s' "$raw_creg"   | grep '+CREG:'        | head -1 | tr -d '\r')"
+    c5greg_raw="$(printf '%s' "$raw_c5greg" | grep '+C5GREG:'      | head -1 | tr -d '\r')"
+    qcsq_raw="$(  printf '%s' "$raw_qcsq"   | grep '^+QCSQ'        | head -1 | sed 's/+QCSQ: //' | tr -d '\r"')"
+    cell_raw="$(  printf '%s' "$raw_qeng"   | grep '^+QENG'        | head -1 | tr -d '\r')"
+    lte_bands="$( printf '%s' "$raw_lte"    | grep '^+QNWPREFCFG'  | head -1 | sed 's/[^,]*,//' | tr -d '\r')"
+    nr_bands="$(  printf '%s' "$raw_nr"     | grep '^+QNWPREFCFG'  | head -1 | sed 's/[^,]*,//' | tr -d '\r')"
+    mode="$(      printf '%s' "$raw_mode"   | grep '^+QNWPREFCFG'  | head -1 | sed 's/[^,]*,//' | tr -d '\r"')"
 
-    # If modem returned no data at all — AT port present but modem not responding
-    [ -z "$raw" ] && { printf '{"error":"modem not responding"}'; return; }
-
-    # Extract per-command data from the combined response
-    fw="$(        printf '%s' "$raw" | grep -E '^RM'        | head -1 | tr -d '\r')"
-    imei="$(      printf '%s' "$raw" | grep -E '^[0-9]{15}' | head -1 | tr -d '\r')"
-    creg_raw="$(  printf '%s' "$raw" | grep '+CREG:'        | head -1 | tr -d '\r')"
-    c5greg_raw="$(printf '%s' "$raw" | grep '+C5GREG:'      | head -1 | tr -d '\r')"
-    qcsq_raw="$(  printf '%s' "$raw" | grep '^+QCSQ'        | head -1 | sed 's/+QCSQ: //' | tr -d '\r"')"
-    cell_raw="$(  printf '%s' "$raw" | grep '^+QENG'        | head -1 | tr -d '\r')"
-    # QNWPREFCFG responses include the param name — extract value after the comma
-    lte_bands="$( printf '%s' "$raw" | grep '+QNWPREFCFG: "lte_band"'  | sed 's/.*"lte_band",//'  | tr -d '\r')"
-    nr_bands="$(  printf '%s' "$raw" | grep '+QNWPREFCFG: "nr5g_band"' | sed 's/.*"nr5g_band",//' | tr -d '\r')"
-    mode="$(      printf '%s' "$raw" | grep '+QNWPREFCFG: "mode_pref"' | sed 's/.*"mode_pref",/'  | tr -d '\r')"
-
-    # Parsers that do their own internal grep on the full combined output
     _parse_qcsq    "$qcsq_raw"
     _parse_qeng    "$cell_raw"
-    _parse_qnwinfo "$raw"
-    _parse_qrsrp   "$raw"
-    _parse_qtemp   "$raw"
-    _parse_cops    "$raw"
-    _parse_qgdcnt  "$raw"
+    _parse_qnwinfo "$raw_qnwinfo"
+    _parse_qrsrp   "$raw_qrsrp"
+    _parse_qtemp   "$raw_qtemp"
+    _parse_cops    "$raw_cops"
+    _parse_qgdcnt  "$raw_qgdcnt"
     creg="$(   _parse_reg_stat "$creg_raw")"
     c5greg="$( _parse_reg_stat "$c5greg_raw")"
-    ca_json="$(_build_ca_json  "$raw")"
+    ca_json="$(_build_ca_json  "$raw_qcainfo")"
 
     printf '{'
     printf '"firmware":%s,'    "$(_json_str "$fw")"
@@ -359,50 +337,33 @@ _method_full_status() {
 }
 
 # Live refresh — signal + cell detail + per-antenna RSRP. Used by 10s poll.
-# Uses the same bulk-send approach as full_status: all 3 commands sent at once.
 _method_refresh() {
     _find_at_port || { printf '{"error":"AT port not found"}'; return; }
     _at_lock      || { printf '{"error":"AT port busy"}';      return; }
 
-    local tmpf="/tmp/_rm520n_rf_$$" dpid i raw qcsq_raw cell_raw
+    local raw_qcsq raw_qeng raw_qrsrp qcsq_raw cell_raw
     local tech rssi rsrp sinr rsrq
     local qeng_rrc qeng_rat qeng_duplex qeng_mcc qeng_mnc
     local qeng_cell_id qeng_pci qeng_earfcn qeng_band qeng_tac
     local qeng_rsrp qeng_rsrq qeng_rssi qeng_sinr qeng_cqi qeng_tx_power
     local rsrp_rx0 rsrp_rx1 rsrp_rx2 rsrp_rx3
 
+    stty -F "$AT_PORT" -opost -onlcr -icrnl min 0 time 3 2>/dev/null || true
     exec 3<>"$AT_PORT"
-    stty raw -F "$AT_PORT" 2>/dev/null || true
-    dd <&3 of="$tmpf" bs=4096 count=65536 2>/dev/null &
-    dpid=$!
 
-    printf 'AT+QCSQ\r\n'               >&3
-    printf 'AT+QENG="servingcell"\r\n' >&3
-    printf 'AT+QRSRP\r\n'              >&3
+    raw_qcsq="$(  _at_seq 'AT+QCSQ')"
+    raw_qeng="$(  _at_seq 'AT+QENG="servingcell"')"
+    raw_qrsrp="$( _at_seq 'AT+QRSRP')"
 
-    # Wait for all 3 responses, up to 4s
-    i=0
-    while [ "$i" -lt 4 ]; do
-        sleep 1; i=$(( i + 1 ))
-        [ "$(grep -cE '^(OK|ERROR|\+CME ERROR)' "$tmpf" 2>/dev/null || echo 0)" -ge 3 ] && break
-    done
-
-    kill "$dpid" 2>/dev/null || true
-    wait "$dpid" 2>/dev/null || true
-    exec 3>&- 2>/dev/null || true
+    exec 3>&-
     _at_unlock
 
-    raw="$(cat "$tmpf" 2>/dev/null)"
-    rm -f "$tmpf"
-
-    [ -z "$raw" ] && { printf '{"error":"modem not responding"}'; return; }
-
-    qcsq_raw="$(printf '%s' "$raw" | grep '^+QCSQ' | head -1 | sed 's/+QCSQ: //' | tr -d '\r"')"
-    cell_raw="$(printf '%s' "$raw" | grep '^+QENG' | head -1 | tr -d '\r')"
+    qcsq_raw="$(printf '%s' "$raw_qcsq" | grep '^+QCSQ' | head -1 | sed 's/+QCSQ: //' | tr -d '\r"')"
+    cell_raw="$( printf '%s' "$raw_qeng" | grep '^+QENG' | head -1 | tr -d '\r')"
 
     _parse_qcsq  "$qcsq_raw"
     _parse_qeng  "$cell_raw"
-    _parse_qrsrp "$raw"
+    _parse_qrsrp "$raw_qrsrp"
 
     printf '{'
     printf '"technology":%s,' "$(_json_str "$tech")"
