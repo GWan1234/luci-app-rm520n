@@ -98,12 +98,21 @@ function rsrqColor(rsrq) {
     return 'var(--red)';
 }
 
+function tempColor(v) {
+    if (v == null || isNaN(parseInt(v))) return 'var(--muted)';
+    var n = parseInt(v);
+    if (n > 80) return 'var(--red)';
+    if (n > 65) return 'var(--orange)';
+    if (n > 50) return 'var(--amber)';
+    return 'var(--green)';
+}
+
 function signalQualityBadge(rsrp, sinr) {
     var r = parseInt(rsrp), s = parseInt(sinr);
     if (isNaN(r)) return E('span', {}, '');
     var score = r > -80 ? 5 : r > -90 ? 4 : r > -100 ? 3 : r > -110 ? 2 : 1;
     if (!isNaN(s)) {
-        if (s >= 20 && score < 5) score++;
+        if (s >= 10 && score < 5) score++;
         if (s <  0  && score > 1) score--;
     }
     var labels = ['', 'Poor', 'Fair', 'Good', 'Very Good', 'Excellent'];
@@ -330,7 +339,10 @@ return view.extend({
                 E('table', { 'class': 'rm-table' },
                     d.temps.map(function(t) {
                         var label = TEMP_LABELS[t.name] || t.name;
-                        return row(label, t.value != null ? t.value + ' °C' : '—');
+                        return row(label, t.value != null
+                            ? E('span', { 'style': 'color:' + tempColor(t.value) + ';font-weight:600' },
+                                t.value + ' °C')
+                            : '—');
                     })
                 )
             ]);
