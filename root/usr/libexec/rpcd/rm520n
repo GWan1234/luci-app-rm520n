@@ -514,11 +514,40 @@ _method_set_apn() {
     printf '{"result":"ok","apn":"%s"}' "$apn"
 }
 
+_method_reset_bands() {
+    _find_at_port || { printf '{"error":"AT port not found"}'; return; }
+    _at_lock      || { printf '{"error":"AT port busy"}';      return; }
+    _at 'AT+QNWPREFCFG="lte_band",1:2:3:4:5:7:8:12:13:14:17:18:19:20:25:26:28:29:30:32:34:38:39:40:41:42:43:46:48:66:71' >/dev/null
+    _at 'AT+QNWPREFCFG="nr5g_band",1:2:3:5:7:8:12:13:14:18:20:25:26:28:29:30:38:40:41:48:66:70:71:75:76:77:78:79' >/dev/null
+    _at_unlock
+    printf '{"result":"ok"}'
+}
+
+_method_reconnect() {
+    _find_at_port || { printf '{"error":"AT port not found"}'; return; }
+    _at_lock      || { printf '{"error":"AT port busy"}';      return; }
+    _at 'AT+CFUN=4' >/dev/null
+    sleep 3
+    _at 'AT+CFUN=1' >/dev/null
+    _at_unlock
+    printf '{"result":"reconnecting"}'
+}
+
+_method_set_mode() {
+    _find_at_port || { printf '{"error":"AT port not found"}'; return; }
+    _at_lock      || { printf '{"error":"AT port busy"}';      return; }
+    local mode="$1"
+    [ -z "$mode" ] && { _at_unlock; printf '{"error":"mode required"}'; return; }
+    _at "AT+QNWPREFCFG=\"mode_pref\",${mode}" >/dev/null
+    _at_unlock
+    printf '{"result":"ok"}'
+}
+
 # ── JSON-RPC dispatcher ────────────────────────────────────────────────────────
 
 case "$1" in
     list)
-        printf '{"full_status":{},"refresh":{},"status":{},"signal":{},"cell":{},"bands":{},"set_bands":{"lte_band":"","nr_band":""},"reboot_modem":{},"set_apn":{"apn":""}}'
+        printf '{"full_status":{},"refresh":{},"status":{},"signal":{},"cell":{},"bands":{},"set_bands":{"lte_band":"","nr_band":""},"reset_bands":{},"reconnect":{},"set_mode":{"mode":""},"reboot_modem":{},"set_apn":{"apn":""}}'
         ;;
     call)
         case "$2" in
@@ -529,6 +558,9 @@ case "$1" in
             cell)          _method_cell ;;
             bands)         _method_bands ;;
             set_bands)     _method_set_bands "$(jsonfilter -e '@.lte_band' 2>/dev/null)" "$(jsonfilter -e '@.nr_band' 2>/dev/null)" ;;
+            reset_bands)   _method_reset_bands ;;
+            reconnect)     _method_reconnect ;;
+            set_mode)      _method_set_mode "$(jsonfilter -e '@.mode' 2>/dev/null)" ;;
             reboot_modem)  _method_reboot_modem ;;
             set_apn)       _method_set_apn "$(jsonfilter -e '@.apn' 2>/dev/null)" ;;
             *)             printf '{"error":"unknown method"}' ;;

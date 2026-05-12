@@ -8,7 +8,7 @@
     },
     "write": {
       "ubus": {
-        "rm520n": [ "set_bands", "reboot_modem", "set_apn" ]
+        "rm520n": [ "set_bands", "reboot_modem", "set_apn", "reset_bands", "reconnect", "set_mode" ]
       }
     }
   }

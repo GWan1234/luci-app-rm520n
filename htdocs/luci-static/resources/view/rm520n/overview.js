@@ -4,11 +4,14 @@
 'require poll';
 'require ui';
 
-var callFullStatus = rpc.declare({ object: 'rm520n', method: 'full_status', expect: {} });
-var callRefresh    = rpc.declare({ object: 'rm520n', method: 'refresh',     expect: {} });
-var callReboot     = rpc.declare({ object: 'rm520n', method: 'reboot_modem' });
-var callSetApn     = rpc.declare({ object: 'rm520n', method: 'set_apn',   params: ['apn'] });
-var callSetBands   = rpc.declare({ object: 'rm520n', method: 'set_bands', params: ['lte_band', 'nr_band'] });
+var callFullStatus  = rpc.declare({ object: 'rm520n', method: 'full_status', expect: {} });
+var callRefresh     = rpc.declare({ object: 'rm520n', method: 'refresh',     expect: {} });
+var callReboot      = rpc.declare({ object: 'rm520n', method: 'reboot_modem' });
+var callSetApn      = rpc.declare({ object: 'rm520n', method: 'set_apn',     params: ['apn'] });
+var callSetBands    = rpc.declare({ object: 'rm520n', method: 'set_bands',   params: ['lte_band', 'nr_band'] });
+var callResetBands  = rpc.declare({ object: 'rm520n', method: 'reset_bands' });
+var callReconnect   = rpc.declare({ object: 'rm520n', method: 'reconnect' });
+var callSetMode     = rpc.declare({ object: 'rm520n', method: 'set_mode',    params: ['mode'] });
 
 var CSS =
     '#rm520n-view{'
@@ -52,7 +55,21 @@ var CSS =
     + '.rm-btn{padding:6px 14px;border-radius:6px;border:none;cursor:pointer;font-weight:600;font-size:.85em}'
     + '.rm-btn-primary{background:var(--accent);color:#fff}'
     + '.rm-btn-danger{background:var(--red);color:#fff}'
-    + '.rm-btn-default{background:#334155;color:var(--text)}';
+    + '.rm-btn-default{background:#334155;color:var(--text)}'
+    + '.rm-section-lbl{font-size:.75em;text-transform:uppercase;letter-spacing:.07em;'
+    + 'color:var(--muted);margin:12px 0 5px;padding-bottom:4px;border-bottom:1px solid var(--border)}'
+    + '.rm-band-chips{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px}'
+    + '.rm-band-chip{padding:2px 8px;border-radius:4px;border:1px solid var(--border);'
+    + 'cursor:pointer;font-size:.76em;font-weight:700;background:var(--bg);color:var(--muted);'
+    + 'user-select:none;transition:background .12s,color .12s,border-color .12s}'
+    + '.rm-band-chip.on{background:var(--accent);color:#fff;border-color:var(--accent)}'
+    + '.rm-cell-id-block{line-height:1.7}'
+    + '.rm-cell-id-hex{font-family:monospace;font-weight:700;font-size:1em}'
+    + '.rm-cell-id-dec{color:var(--muted);font-size:.82em;margin-left:7px}'
+    + '.rm-cell-id-meta{font-size:.8em;color:var(--muted)}'
+    + '.rm-cell-id-link{font-size:.8em;color:var(--accent);text-decoration:none;margin-left:8px}'
+    + '.rm-select{background:var(--bg);border:1px solid var(--border);color:var(--text);'
+    + 'padding:6px 10px;border-radius:6px;font-family:inherit;font-size:.85em}';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -96,6 +113,43 @@ function rsrqColor(rsrq) {
     if (v > -15) return 'var(--lime)';
     if (v > -20) return 'var(--amber)';
     return 'var(--red)';
+}
+
+var LTE_ALL = [1,2,3,4,5,7,8,12,13,14,17,18,19,20,25,26,28,29,30,32,34,38,39,40,41,42,43,46,48,66,71];
+var NR_ALL  = [1,2,3,5,7,8,12,13,14,18,20,25,26,28,29,30,38,40,41,48,66,70,71,75,76,77,78,79];
+
+function buildBandChips(allBands, enabledStr, prefix, gridId) {
+    var enabled = {};
+    (enabledStr || '').split(':').forEach(function(b) {
+        var n = parseInt(b); if (!isNaN(n)) enabled[n] = true;
+    });
+    var chips = allBands.map(function(b) {
+        var chip = E('span', {
+            'class': 'rm-band-chip' + (enabled[b] ? ' on' : ''),
+            'data-band': String(b)
+        }, prefix + b);
+        chip.addEventListener('click', function() { chip.classList.toggle('on'); });
+        return chip;
+    });
+    return E('div', { 'class': 'rm-band-chips', 'id': gridId }, chips);
+}
+
+function getSelectedBands(gridId) {
+    var el = document.getElementById(gridId);
+    if (!el) return '';
+    var sel = [];
+    el.querySelectorAll('.rm-band-chip.on').forEach(function(c) {
+        sel.push(c.getAttribute('data-band'));
+    });
+    return sel.join(':');
+}
+
+function setAllChips(gridId, on) {
+    var el = document.getElementById(gridId);
+    if (!el) return;
+    el.querySelectorAll('.rm-band-chip').forEach(function(c) {
+        c.classList[on ? 'add' : 'remove']('on');
+    });
 }
 
 function tempColor(v) {
@@ -271,7 +325,27 @@ return view.extend({
         ]);
 
         // Card 3 — Cell info (live)
-        var cmUrl = cellmapperUrl(d.mcc, d.mnc, d.cell_id, d.rat);
+        var ciHex  = d.cell_id || null;
+        var ciDec  = ciHex ? parseInt(ciHex, 16) : null;
+        var enbId  = ciDec != null ? (ciDec >> 8)   : null;
+        var sector = ciDec != null ? (ciDec & 0xFF) : null;
+        var cmUrl  = cellmapperUrl(d.mcc, d.mnc, d.cell_id, d.rat);
+
+        var cellIdContent = ciHex
+            ? E('div', { 'class': 'rm-cell-id-block' }, [
+                E('div', {}, [
+                    E('span', { 'class': 'rm-cell-id-hex', 'id': 'cell-id' }, ciHex),
+                    E('span', { 'class': 'rm-cell-id-dec' }, '(' + ciDec + ')')
+                ]),
+                E('div', { 'class': 'rm-cell-id-meta' }, [
+                    'eNB ' + enbId + ' · Sector ' + sector,
+                    cmUrl ? E('a', {
+                        'class': 'rm-cell-id-link', 'href': cmUrl, 'target': '_blank'
+                    }, '↗ CellMapper') : null
+                ].filter(Boolean))
+              ])
+            : E('span', { 'id': 'cell-id' }, '—');
+
         var cellCard = E('div', { 'class': 'rm-card' }, [
             E('h3', {}, 'Cell Info'),
             E('table', { 'class': 'rm-table' }, [
@@ -280,13 +354,7 @@ return view.extend({
                 row('Duplex',    d.duplex || '—'),
                 row('EARFCN',    E('span', { 'id': 'cell-earfcn' }, d.earfcn != null ? String(d.earfcn) : '—')),
                 row('PCI',       E('span', { 'id': 'cell-pci'    }, d.pci    != null ? String(d.pci)    : '—')),
-                row('Cell ID',   E('span', {}, [
-                    E('span', { 'id': 'cell-id' }, d.cell_id || '—'),
-                    cmUrl ? E('a', {
-                        'href': cmUrl, 'target': '_blank',
-                        'style': 'margin-left:10px;color:var(--accent);font-size:.8em'
-                    }, '↗ CellMapper') : null
-                ].filter(Boolean))),
+                row('Cell ID',   cellIdContent),
                 d.tac ? row('TAC', d.tac) : null,
             ].filter(Boolean))
         ]);
@@ -361,28 +429,82 @@ return view.extend({
         // Card 8 — Band configuration
         var bandsCard = E('div', { 'class': 'rm-card' }, [
             E('h3', {}, 'Band Configuration'),
-            E('table', { 'class': 'rm-table' }, [
-                row('Mode',      d.mode       || '—'),
-                row('LTE Bands', d.lte_bands  || '—'),
-                row('NR Bands',  d.nr5g_bands || '—'),
-            ]),
+
+            E('div', { 'class': 'rm-section-lbl' }, 'Network Mode'),
             E('div', { 'class': 'rm-controls' }, [
-                E('input', { 'id': 'lte-band-input', 'type': 'text',
-                    'class': 'rm-input', 'placeholder': 'LTE e.g. 1:3:7:20' }),
-                E('input', { 'id': 'nr-band-input', 'type': 'text',
-                    'class': 'rm-input', 'placeholder': 'NR e.g. 78' }),
-                E('button', {
-                    'class': 'rm-btn rm-btn-primary',
+                E('select', { 'id': 'mode-select', 'class': 'rm-select' },
+                    ['AUTO', 'LTE', 'NR5G', 'LTE:NR5G'].map(function(m) {
+                        var opt = E('option', { 'value': m }, m);
+                        if (m === (d.mode || 'AUTO')) opt.selected = true;
+                        return opt;
+                    })
+                ),
+                E('button', { 'class': 'rm-btn rm-btn-primary',
                     'click': function() {
-                        var lte = document.getElementById('lte-band-input').value.trim();
-                        var nr  = document.getElementById('nr-band-input').value.trim();
-                        callSetBands(lte, nr).then(function() {
-                            ui.addNotification(null,
-                                E('p', _('Band configuration applied. Modem will reconnect.')), 'info');
+                        var m = document.getElementById('mode-select').value;
+                        callSetMode(m).then(function() {
+                            ui.addNotification(null, E('p', 'Mode set to: ' + m), 'info');
                         });
                     }
-                }, 'Apply Bands')
-            ])
+                }, 'Apply Mode'),
+            ]),
+
+            E('div', { 'class': 'rm-section-lbl' }, 'LTE Bands'),
+            E('div', { 'class': 'rm-controls', 'style': 'margin-bottom:4px' }, [
+                E('button', { 'class': 'rm-btn rm-btn-default',
+                    'style': 'padding:2px 10px;font-size:.76em',
+                    'click': function() { setAllChips('lte-chips', true); }
+                }, 'All'),
+                E('button', { 'class': 'rm-btn rm-btn-default',
+                    'style': 'padding:2px 10px;font-size:.76em',
+                    'click': function() { setAllChips('lte-chips', false); }
+                }, 'None'),
+            ]),
+            buildBandChips(LTE_ALL, d.lte_bands, 'B', 'lte-chips'),
+            E('div', { 'class': 'rm-controls' }, [
+                E('button', { 'class': 'rm-btn rm-btn-primary',
+                    'click': function() {
+                        var bands = getSelectedBands('lte-chips');
+                        if (!bands) return;
+                        callSetBands(bands, null).then(function() {
+                            ui.addNotification(null, E('p', 'LTE bands applied.'), 'info');
+                        });
+                    }
+                }, 'Apply LTE'),
+                E('button', { 'class': 'rm-btn rm-btn-default',
+                    'click': function() {
+                        callResetBands().then(function() {
+                            setAllChips('lte-chips', true);
+                            setAllChips('nr-chips', true);
+                            ui.addNotification(null, E('p', 'All bands restored.'), 'info');
+                        });
+                    }
+                }, 'Reset All Bands'),
+            ]),
+
+            E('div', { 'class': 'rm-section-lbl' }, 'NR Bands'),
+            E('div', { 'class': 'rm-controls', 'style': 'margin-bottom:4px' }, [
+                E('button', { 'class': 'rm-btn rm-btn-default',
+                    'style': 'padding:2px 10px;font-size:.76em',
+                    'click': function() { setAllChips('nr-chips', true); }
+                }, 'All'),
+                E('button', { 'class': 'rm-btn rm-btn-default',
+                    'style': 'padding:2px 10px;font-size:.76em',
+                    'click': function() { setAllChips('nr-chips', false); }
+                }, 'None'),
+            ]),
+            buildBandChips(NR_ALL, d.nr5g_bands, 'n', 'nr-chips'),
+            E('div', { 'class': 'rm-controls' }, [
+                E('button', { 'class': 'rm-btn rm-btn-primary',
+                    'click': function() {
+                        var bands = getSelectedBands('nr-chips');
+                        if (!bands) return;
+                        callSetBands(null, bands).then(function() {
+                            ui.addNotification(null, E('p', 'NR bands applied.'), 'info');
+                        });
+                    }
+                }, 'Apply NR'),
+            ]),
         ]);
 
         // Card 9 — Controls (APN + reboot + manual refresh)
@@ -410,6 +532,28 @@ return view.extend({
                         callRefresh().then(function(r) { updateSignal(r); });
                     }
                 }, 'Refresh Now'),
+                E('button', {
+                    'class': 'rm-btn rm-btn-primary',
+                    'click': function() {
+                        ui.showModal(_('Reconnect Modem'), [
+                            E('p', _('Soft reconnect (CFUN=4 → CFUN=1). Connection will drop for ~5 seconds.')),
+                            E('div', { 'class': 'right' }, [
+                                E('button', { 'class': 'btn cbi-button',
+                                    'click': ui.hideModal }, _('Cancel')),
+                                ' ',
+                                E('button', {
+                                    'class': 'btn cbi-button cbi-button-apply',
+                                    'click': function() {
+                                        callReconnect();
+                                        ui.hideModal();
+                                        ui.addNotification(null,
+                                            E('p', _('Reconnecting modem...')), 'info');
+                                    }
+                                }, _('Reconnect'))
+                            ])
+                        ]);
+                    }
+                }, 'Reconnect'),
                 E('button', {
                     'class': 'rm-btn rm-btn-danger',
                     'click': function() {
