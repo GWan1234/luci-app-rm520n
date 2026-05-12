@@ -98,6 +98,33 @@ function rsrqColor(rsrq) {
     return 'var(--red)';
 }
 
+function signalQualityBadge(rsrp, sinr) {
+    var r = parseInt(rsrp), s = parseInt(sinr);
+    if (isNaN(r)) return E('span', {}, '');
+    var score = r > -80 ? 5 : r > -90 ? 4 : r > -100 ? 3 : r > -110 ? 2 : 1;
+    if (!isNaN(s)) {
+        if (s >= 20 && score < 5) score++;
+        if (s <  0  && score > 1) score--;
+    }
+    var labels = ['', 'Poor', 'Fair', 'Good', 'Very Good', 'Excellent'];
+    var colors = ['', '#b91c1c', '#c2410c', '#b45309', '#4d7c0f', '#15803d'];
+    return E('span', {
+        'class': 'rm-badge',
+        'style': 'background:' + colors[score] + ';color:#fff'
+    }, labels[score]);
+}
+
+function cellmapperUrl(mcc, mnc, cellId, rat) {
+    if (!mcc || !mnc || !cellId) return null;
+    var ci = parseInt(cellId, 16);
+    if (isNaN(ci)) return null;
+    var type = (rat && rat.indexOf('NR') >= 0) ? 'NR' : 'LTE';
+    return 'https://www.cellmapper.net/map?MCC=' + mcc
+        + '&MNC=' + parseInt(mnc)
+        + '&type=' + type
+        + '&searchCellId=' + ci;
+}
+
 function techBadge(tech) {
     var colors = { 'NR5G-SA': '#7e22ce', 'NR5G-NSA': '#9333ea', 'LTE': '#1d4ed8', 'WCDMA': '#166534' };
     return E('span', {
@@ -163,7 +190,8 @@ function setEl(id, child) {
 
 function updateSignal(d) {
     if (!d) return;
-    setEl('sig-tech', techBadge(d.technology));
+    setEl('sig-tech',    techBadge(d.technology));
+    setEl('sig-quality', signalQualityBadge(d.rsrp, d.sinr));
     setEl('sig-rssi', d.rssi != null ? d.rssi + ' dBm' : null);
     setEl('sig-rsrp', signalBar(d.rsrp));
     setEl('sig-sinr', d.sinr != null
@@ -175,7 +203,7 @@ function updateSignal(d) {
     setEl('cell-band',   d.band    != null ? 'B' + d.band     : null);
     setEl('cell-earfcn', d.earfcn  != null ? String(d.earfcn) : null);
     setEl('cell-pci',    d.pci     != null ? String(d.pci)    : null);
-    setEl('cell-id',     d.cell_id || null);
+    if (d.cell_id) setEl('cell-id', d.cell_id);
 
     ['rx0', 'rx1', 'rx2', 'rx3'].forEach(function(rx) {
         var el = document.getElementById('ant-' + rx);
@@ -214,7 +242,8 @@ return view.extend({
         var signalCard = E('div', { 'class': 'rm-card' }, [
             E('div', { 'class': 'rm-head' }, [
                 E('h3', {}, 'Signal'),
-                E('span', { 'id': 'sig-tech' }, [ techBadge(d.technology) ])
+                E('span', { 'id': 'sig-tech' }, [ techBadge(d.technology) ]),
+                E('span', { 'id': 'sig-quality' }, [ signalQualityBadge(d.rsrp, d.sinr) ])
             ]),
             E('table', { 'class': 'rm-table' }, [
                 row('RSSI', E('span', { 'id': 'sig-rssi' },
@@ -232,6 +261,7 @@ return view.extend({
         ]);
 
         // Card 3 — Cell info (live)
+        var cmUrl = cellmapperUrl(d.mcc, d.mnc, d.cell_id, d.rat);
         var cellCard = E('div', { 'class': 'rm-card' }, [
             E('h3', {}, 'Cell Info'),
             E('table', { 'class': 'rm-table' }, [
@@ -240,7 +270,13 @@ return view.extend({
                 row('Duplex',    d.duplex || '—'),
                 row('EARFCN',    E('span', { 'id': 'cell-earfcn' }, d.earfcn != null ? String(d.earfcn) : '—')),
                 row('PCI',       E('span', { 'id': 'cell-pci'    }, d.pci    != null ? String(d.pci)    : '—')),
-                row('Cell ID',   E('span', { 'id': 'cell-id'     }, d.cell_id || '—')),
+                row('Cell ID',   E('span', {}, [
+                    E('span', { 'id': 'cell-id' }, d.cell_id || '—'),
+                    cmUrl ? E('a', {
+                        'href': cmUrl, 'target': '_blank',
+                        'style': 'margin-left:10px;color:var(--accent);font-size:.8em'
+                    }, '↗ CellMapper') : null
+                ].filter(Boolean))),
                 d.tac ? row('TAC', d.tac) : null,
             ].filter(Boolean))
         ]);
