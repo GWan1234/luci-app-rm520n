@@ -272,16 +272,16 @@ return view.extend({
             ]);
         }
 
-        // Card 6 — Temperature (optional, static — only available when modem reports sensors)
+        // Card 6 — Temperature (optional, static — sensor names and count vary by firmware)
         var tempCard = null;
-        if (d.temp_xo != null || d.temp_mdm != null || d.temp_pa != null) {
-            var tempRows = [];
-            if (d.temp_xo  != null) tempRows.push(row('XO Therm',  d.temp_xo  + ' °C'));
-            if (d.temp_mdm != null) tempRows.push(row('MDM Therm', d.temp_mdm + ' °C'));
-            if (d.temp_pa  != null) tempRows.push(row('PA Therm',  d.temp_pa  + ' °C'));
+        if (d.temps && d.temps.length) {
             tempCard = E('div', { 'class': 'rm-card' }, [
                 E('h3', {}, 'Temperature'),
-                E('table', { 'class': 'rm-table' }, tempRows)
+                E('table', { 'class': 'rm-table' },
+                    d.temps.map(function(t) {
+                        return row(t.name, t.value != null ? t.value + ' °C' : '—');
+                    })
+                )
             ]);
         }
 

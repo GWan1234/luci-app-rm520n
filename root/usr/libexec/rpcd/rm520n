@@ -129,13 +129,29 @@ _parse_qrsrp() {
     [ "$rsrp_rx3" = "-140" ] && rsrp_rx3=""
 }
 
-# +QTEMP: "sensor",value  (multiple lines)
-# Sets globals: temp_xo temp_mdm temp_pa
-_parse_qtemp() {
-    local raw="$1"
-    temp_xo="$( printf '%s' "$raw" | grep '"xo-therm'  | head -1 | cut -d, -f2 | tr -d ' \r')"
-    temp_mdm="$(printf '%s' "$raw" | grep '"mdm'        | head -1 | cut -d, -f2 | tr -d ' \r')"
-    temp_pa="$( printf '%s' "$raw" | grep '"pa-therm'   | head -1 | cut -d, -f2 | tr -d ' \r')"
+# +QTEMP: "sensor",value  (multiple lines, sensor names vary by firmware)
+# Builds and prints a JSON array of {name, value} objects, or null if no data.
+_build_temp_json() {
+    local raw="$1" tmpf="/tmp/_rm520n_tmp_$$" _line _data _name _val
+    printf '%s' "$raw" | grep '^+QTEMP:' | while IFS= read -r _line; do
+        _data="$(printf '%s' "$_line" | sed 's/+QTEMP:[[:space:]]*//' | tr -d '"' | tr -d '\r')"
+        _name="$(printf '%s' "$_data" | cut -d, -f1)"
+        _val="$( printf '%s' "$_data" | cut -d, -f2 | tr -d ' ')"
+        printf '%s|%s\n' "$_name" "$_val"
+    done > "$tmpf"
+    if [ -s "$tmpf" ]; then
+        printf '['
+        local _first=1
+        while IFS='|' read -r _name _val; do
+            [ "$_first" -eq 0 ] && printf ','
+            printf '{"name":%s,"value":%s}' "$(_json_str "$_name")" "$(_json_num "$_val")"
+            _first=0
+        done < "$tmpf"
+        printf ']'
+    else
+        printf 'null'
+    fi
+    rm -f "$tmpf"
 }
 
 # +QNWINFO: "<duplex> <rat>","<plmn>","<rat> BAND <n>",<earfcn>
@@ -249,9 +265,9 @@ _method_full_status() {
     local qeng_cell_id qeng_pci qeng_earfcn qeng_band qeng_tac
     local qeng_rsrp qeng_rsrq qeng_rssi qeng_sinr qeng_cqi qeng_tx_power
     local rsrp_rx0 rsrp_rx1 rsrp_rx2 rsrp_rx3
-    local temp_xo temp_mdm temp_pa operator modem_tx modem_rx
+    local operator modem_tx modem_rx
     local qnwinfo_rat qnwinfo_duplex qnwinfo_mcc qnwinfo_mnc qnwinfo_band qnwinfo_earfcn
-    local creg c5greg ca_json
+    local creg c5greg ca_json temps_json
 
     stty -F "$AT_PORT" -opost -onlcr -icrnl min 0 time 3 2>/dev/null || true
     exec 3<>"$AT_PORT"
@@ -289,12 +305,12 @@ _method_full_status() {
     _parse_qeng    "$cell_raw"
     _parse_qnwinfo "$raw_qnwinfo"
     _parse_qrsrp   "$raw_qrsrp"
-    _parse_qtemp   "$raw_qtemp"
     _parse_cops    "$raw_cops"
     _parse_qgdcnt  "$raw_qgdcnt"
-    creg="$(   _parse_reg_stat "$creg_raw")"
-    c5greg="$( _parse_reg_stat "$c5greg_raw")"
-    ca_json="$(_build_ca_json  "$raw_qcainfo")"
+    creg="$(      _parse_reg_stat "$creg_raw")"
+    c5greg="$(    _parse_reg_stat "$c5greg_raw")"
+    ca_json="$(   _build_ca_json  "$raw_qcainfo")"
+    temps_json="$(_build_temp_json "$raw_qtemp")"
 
     printf '{'
     printf '"firmware":%s,'    "$(_json_str "$fw")"
@@ -324,9 +340,7 @@ _method_full_status() {
     printf '"rsrp_rx1":%s,'    "$(_json_num "$rsrp_rx1")"
     printf '"rsrp_rx2":%s,'    "$(_json_num "$rsrp_rx2")"
     printf '"rsrp_rx3":%s,'    "$(_json_num "$rsrp_rx3")"
-    printf '"temp_xo":%s,'     "$(_json_num "$temp_xo")"
-    printf '"temp_mdm":%s,'    "$(_json_num "$temp_mdm")"
-    printf '"temp_pa":%s,'     "$(_json_num "$temp_pa")"
+    printf '"temps":%s,'       "$temps_json"
     printf '"modem_tx":%s,'    "$(_json_num "$modem_tx")"
     printf '"modem_rx":%s,'    "$(_json_num "$modem_rx")"
     printf '"ca":%s,'          "$ca_json"
@@ -341,19 +355,21 @@ _method_refresh() {
     _find_at_port || { printf '{"error":"AT port not found"}'; return; }
     _at_lock      || { printf '{"error":"AT port busy"}';      return; }
 
-    local raw_qcsq raw_qeng raw_qrsrp qcsq_raw cell_raw
+    local raw_qcsq raw_qeng raw_qrsrp raw_qnwinfo qcsq_raw cell_raw
     local tech rssi rsrp sinr rsrq
     local qeng_rrc qeng_rat qeng_duplex qeng_mcc qeng_mnc
     local qeng_cell_id qeng_pci qeng_earfcn qeng_band qeng_tac
     local qeng_rsrp qeng_rsrq qeng_rssi qeng_sinr qeng_cqi qeng_tx_power
     local rsrp_rx0 rsrp_rx1 rsrp_rx2 rsrp_rx3
+    local qnwinfo_rat qnwinfo_duplex qnwinfo_mcc qnwinfo_mnc qnwinfo_band qnwinfo_earfcn
 
     stty -F "$AT_PORT" -opost -onlcr -icrnl min 0 time 3 2>/dev/null || true
     exec 3<>"$AT_PORT"
 
-    raw_qcsq="$(  _at_seq 'AT+QCSQ')"
-    raw_qeng="$(  _at_seq 'AT+QENG="servingcell"')"
-    raw_qrsrp="$( _at_seq 'AT+QRSRP')"
+    raw_qcsq="$(   _at_seq 'AT+QCSQ')"
+    raw_qeng="$(   _at_seq 'AT+QENG="servingcell"')"
+    raw_qnwinfo="$(_at_seq 'AT+QNWINFO')"
+    raw_qrsrp="$(  _at_seq 'AT+QRSRP')"
 
     exec 3>&-
     _at_unlock
@@ -361,9 +377,10 @@ _method_refresh() {
     qcsq_raw="$(printf '%s' "$raw_qcsq" | grep '^+QCSQ' | head -1 | sed 's/+QCSQ: //' | tr -d '\r"')"
     cell_raw="$( printf '%s' "$raw_qeng" | grep '^+QENG' | head -1 | tr -d '\r')"
 
-    _parse_qcsq  "$qcsq_raw"
-    _parse_qeng  "$cell_raw"
-    _parse_qrsrp "$raw_qrsrp"
+    _parse_qcsq    "$qcsq_raw"
+    _parse_qeng    "$cell_raw"
+    _parse_qnwinfo "$raw_qnwinfo"
+    _parse_qrsrp   "$raw_qrsrp"
 
     printf '{'
     printf '"technology":%s,' "$(_json_str "$tech")"
@@ -372,11 +389,11 @@ _method_refresh() {
     printf '"sinr":%s,'       "$(_json_num "$sinr")"
     printf '"rsrq":%s,'       "$(_json_num "$rsrq")"
     printf '"rrc_state":%s,'  "$(_json_str "$qeng_rrc")"
-    printf '"rat":%s,'        "$(_json_str "$qeng_rat")"
+    printf '"rat":%s,'        "$(_json_str "${qeng_rat:-$qnwinfo_rat}")"
     printf '"cell_id":%s,'    "$(_json_str "$qeng_cell_id")"
     printf '"pci":%s,'        "$(_json_num "$qeng_pci")"
-    printf '"earfcn":%s,'     "$(_json_num "$qeng_earfcn")"
-    printf '"band":%s,'       "$(_json_num "$qeng_band")"
+    printf '"earfcn":%s,'     "$(_json_num "${qeng_earfcn:-$qnwinfo_earfcn}")"
+    printf '"band":%s,'       "$(_json_num "${qeng_band:-$qnwinfo_band}")"
     printf '"rsrp_rx0":%s,'   "$(_json_num "$rsrp_rx0")"
     printf '"rsrp_rx1":%s,'   "$(_json_num "$rsrp_rx1")"
     printf '"rsrp_rx2":%s,'   "$(_json_num "$rsrp_rx2")"
