@@ -169,7 +169,7 @@ function signalQualityBadge(rsrp, sinr) {
         if (s >= 10 && score < 5) score++;
         if (s <  0  && score > 1) score--;
     }
-    var labels = ['', 'Poor', 'Fair', 'Good', 'Very Good', 'Excellent'];
+    var labels = ['', _('Poor'), _('Fair'), _('Good'), _('Very Good'), _('Excellent')];
     var colors = ['', '#b91c1c', '#c2410c', '#b45309', '#4d7c0f', '#15803d'];
     return E('span', {
         'class': 'rm-badge',
@@ -290,22 +290,22 @@ return view.extend({
 
         // Card 1 — Modem identity
         var infoCard = E('div', { 'class': 'rm-card' }, [
-            E('h3', {}, 'Modem'),
+            E('h3', {}, _('Modem')),
             E('table', { 'class': 'rm-table' }, [
-                row('Firmware',  d.firmware || '—'),
-                row('IMEI',      d.imei     || '—'),
-                row('AT Port',   d.at_port  || '—'),
-                row('Operator',  d.operator || '—'),
-                row('MCC / MNC', d.mcc && d.mnc ? d.mcc + ' / ' + d.mnc : '—'),
-                row('LTE Reg',   cregBadge(d.creg)),
-                row('5G NR Reg', cregBadge(d.c5greg)),
+                row(_('Firmware'),  d.firmware || '—'),
+                row(_('IMEI'),      d.imei     || '—'),
+                row(_('AT Port'),   d.at_port  || '—'),
+                row(_('Operator'),  d.operator || '—'),
+                row(_('MCC / MNC'), d.mcc && d.mnc ? d.mcc + ' / ' + d.mnc : '—'),
+                row(_('LTE Reg'),   cregBadge(d.creg)),
+                row(_('5G NR Reg'), cregBadge(d.c5greg)),
             ])
         ]);
 
         // Card 2 — Signal quality (live)
         var signalCard = E('div', { 'class': 'rm-card' }, [
             E('div', { 'class': 'rm-head' }, [
-                E('h3', {}, 'Signal'),
+                E('h3', {}, _('Signal')),
                 E('span', { 'id': 'sig-tech' }, [ techBadge(d.technology) ]),
                 E('span', { 'id': 'sig-quality' }, [ signalQualityBadge(d.rsrp, d.sinr) ])
             ]),
@@ -347,21 +347,21 @@ return view.extend({
             : E('span', { 'id': 'cell-id' }, '—');
 
         var cellCard = E('div', { 'class': 'rm-card' }, [
-            E('h3', {}, 'Cell Info'),
+            E('h3', {}, _('Cell Info')),
             E('table', { 'class': 'rm-table' }, [
-                row('RRC State', E('span', { 'id': 'cell-rrc'    }, [ rrcBadge(d.rrc_state) ])),
-                row('Band',      E('span', { 'id': 'cell-band'   }, d.band   != null ? 'B' + d.band     : '—')),
-                row('Duplex',    d.duplex || '—'),
-                row('EARFCN',    E('span', { 'id': 'cell-earfcn' }, d.earfcn != null ? String(d.earfcn) : '—')),
-                row('PCI',       E('span', { 'id': 'cell-pci'    }, d.pci    != null ? String(d.pci)    : '—')),
-                row('Cell ID',   cellIdContent),
-                row('TAC', d.tac || '—'),
+                row(_('RRC State'), E('span', { 'id': 'cell-rrc'    }, [ rrcBadge(d.rrc_state) ])),
+                row(_('Band'),      E('span', { 'id': 'cell-band'   }, d.band   != null ? 'B' + d.band     : '—')),
+                row(_('Duplex'),    d.duplex || '—'),
+                row(_('EARFCN'),    E('span', { 'id': 'cell-earfcn' }, d.earfcn != null ? String(d.earfcn) : '—')),
+                row(_('PCI'),       E('span', { 'id': 'cell-pci'    }, d.pci    != null ? String(d.pci)    : '—')),
+                row(_('Cell ID'),   cellIdContent),
+                row(_('TAC'), d.tac || '—'),
             ])
         ]);
 
         // Card 4 — Carrier Aggregation
         var caCard = E('div', { 'class': 'rm-card' }, [
-            E('h3', {}, 'Carrier Aggregation'),
+            E('h3', {}, _('Carrier Aggregation')),
             (d.ca && d.ca.length)
                 ? E('div', {}, d.ca.map(function(c) {
                     return E('div', { 'class': 'rm-ca-row' }, [
@@ -384,7 +384,7 @@ return view.extend({
         // Card 5 — Per-antenna RSRP (live)
         var rxKeys = ['rx0', 'rx1', 'rx2', 'rx3'];
         var antCard = E('div', { 'class': 'rm-card' }, [
-            E('h3', {}, 'Per-Antenna RSRP'),
+            E('h3', {}, _('Per-Antenna RSRP')),
             E('div', { 'class': 'rm-ant-grid' }, rxKeys.map(function(rx) {
                 var v = d['rsrp_' + rx];
                 return E('div', { 'class': 'rm-ant-cell' }, [
@@ -398,7 +398,7 @@ return view.extend({
 
         // Card 6 — Temperature (sensor names vary by firmware)
         var tempCard = E('div', { 'class': 'rm-card' }, [
-            E('h3', {}, 'Temperature'),
+            E('h3', {}, _('Temperature')),
             (d.temps && d.temps.length)
                 ? E('table', { 'class': 'rm-table' },
                     d.temps.map(function(t) {
@@ -414,18 +414,18 @@ return view.extend({
 
         // Card 7 — Data counters
         var countersCard = E('div', { 'class': 'rm-card' }, [
-            E('h3', {}, 'Data Counters'),
+            E('h3', {}, _('Data Counters')),
             E('table', { 'class': 'rm-table' }, [
-                row('Modem TX', fmtBytes(d.modem_tx)),
-                row('Modem RX', fmtBytes(d.modem_rx)),
+                row(_('Modem TX'), fmtBytes(d.modem_tx)),
+                row(_('Modem RX'), fmtBytes(d.modem_rx)),
             ])
         ]);
 
         // Card 8 — Band configuration
         var bandsCard = E('div', { 'class': 'rm-card' }, [
-            E('h3', {}, 'Band Configuration'),
+            E('h3', {}, _('Band Configuration')),
 
-            E('div', { 'class': 'rm-section-lbl' }, 'Network Mode'),
+            E('div', { 'class': 'rm-section-lbl' }, _('Network Mode')),
             E('div', { 'class': 'rm-controls' }, [
                 E('select', { 'id': 'mode-select', 'class': 'rm-select' },
                     ['AUTO', 'LTE', 'NR5G', 'LTE:NR5G'].map(function(m) {
@@ -438,22 +438,22 @@ return view.extend({
                     'click': function() {
                         var m = document.getElementById('mode-select').value;
                         callSetMode(m).then(function() {
-                            ui.addNotification(null, E('p', 'Mode set to: ' + m), 'info');
+                            ui.addNotification(null, E('p', _('Mode set to: ') + m), 'info');
                         });
                     }
-                }, 'Apply Mode'),
+                }, _('Apply Mode')),
             ]),
 
-            E('div', { 'class': 'rm-section-lbl' }, 'LTE Bands'),
+            E('div', { 'class': 'rm-section-lbl' }, _('LTE Bands')),
             E('div', { 'class': 'rm-controls', 'style': 'margin-bottom:4px' }, [
                 E('button', { 'class': 'rm-btn rm-btn-default',
                     'style': 'padding:2px 10px;font-size:.76em',
                     'click': function() { setAllChips('lte-chips', true); }
-                }, 'All'),
+                }, _('All')),
                 E('button', { 'class': 'rm-btn rm-btn-default',
                     'style': 'padding:2px 10px;font-size:.76em',
                     'click': function() { setAllChips('lte-chips', false); }
-                }, 'None'),
+                }, _('None')),
             ]),
             buildBandChips(LTE_ALL, d.lte_bands, 'B', 'lte-chips'),
             E('div', { 'class': 'rm-controls' }, [
@@ -462,31 +462,31 @@ return view.extend({
                         var bands = getSelectedBands('lte-chips');
                         if (!bands) return;
                         callSetBands(bands, null).then(function() {
-                            ui.addNotification(null, E('p', 'LTE bands applied.'), 'info');
+                            ui.addNotification(null, E('p', _('LTE bands applied.')), 'info');
                         });
                     }
-                }, 'Apply LTE'),
+                }, _('Apply LTE')),
                 E('button', { 'class': 'rm-btn rm-btn-default',
                     'click': function() {
                         callResetBands().then(function() {
                             setAllChips('lte-chips', true);
                             setAllChips('nr-chips', true);
-                            ui.addNotification(null, E('p', 'All bands restored.'), 'info');
+                            ui.addNotification(null, E('p', _('All bands restored.')), 'info');
                         });
                     }
-                }, 'Reset All Bands'),
+                }, _('Reset All Bands')),
             ]),
 
-            E('div', { 'class': 'rm-section-lbl' }, 'NR Bands'),
+            E('div', { 'class': 'rm-section-lbl' }, _('NR Bands')),
             E('div', { 'class': 'rm-controls', 'style': 'margin-bottom:4px' }, [
                 E('button', { 'class': 'rm-btn rm-btn-default',
                     'style': 'padding:2px 10px;font-size:.76em',
                     'click': function() { setAllChips('nr-chips', true); }
-                }, 'All'),
+                }, _('All')),
                 E('button', { 'class': 'rm-btn rm-btn-default',
                     'style': 'padding:2px 10px;font-size:.76em',
                     'click': function() { setAllChips('nr-chips', false); }
-                }, 'None'),
+                }, _('None')),
             ]),
             buildBandChips(NR_ALL, d.nr5g_bands, 'n', 'nr-chips'),
             E('div', { 'class': 'rm-controls' }, [
@@ -495,16 +495,16 @@ return view.extend({
                         var bands = getSelectedBands('nr-chips');
                         if (!bands) return;
                         callSetBands(null, bands).then(function() {
-                            ui.addNotification(null, E('p', 'NR bands applied.'), 'info');
+                            ui.addNotification(null, E('p', _('NR bands applied.')), 'info');
                         });
                     }
-                }, 'Apply NR'),
+                }, _('Apply NR')),
             ]),
         ]);
 
         // Card 9 — Controls (APN + reboot + manual refresh)
         var controlsCard = E('div', { 'class': 'rm-card' }, [
-            E('h3', {}, 'Controls'),
+            E('h3', {}, _('Controls')),
             E('div', { 'class': 'rm-controls' }, [
                 E('input', { 'id': 'apn-input', 'type': 'text',
                     'class': 'rm-input', 'placeholder': 'APN e.g. internet' }),
@@ -518,7 +518,7 @@ return view.extend({
                                 E('p', _('APN set to: ') + apn), 'info');
                         });
                     }
-                }, 'Set APN'),
+                }, _('Set APN')),
             ]),
             E('div', { 'class': 'rm-controls' }, [
                 E('button', {
@@ -526,7 +526,7 @@ return view.extend({
                     'click': function() {
                         callRefresh().then(function(r) { updateSignal(r); });
                     }
-                }, 'Refresh Now'),
+                }, _('Refresh Now')),
                 E('button', {
                     'class': 'rm-btn rm-btn-primary',
                     'click': function() {
@@ -548,7 +548,7 @@ return view.extend({
                             ])
                         ]);
                     }
-                }, 'Reconnect'),
+                }, _('Reconnect')),
                 E('button', {
                     'class': 'rm-btn rm-btn-danger',
                     'click': function() {
@@ -570,7 +570,7 @@ return view.extend({
                             ])
                         ]);
                     }
-                }, 'Reboot Modem'),
+                }, _('Reboot Modem')),
             ])
         ]);
 

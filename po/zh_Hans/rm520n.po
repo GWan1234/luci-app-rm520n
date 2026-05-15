@@ -1,0 +1,173 @@
+# RM520N LuCI App - Simplified Chinese Translation
+# Copyright (C) 2024
+# SPDX-License-Identifier: MIT
+#
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Poor"
+msgstr "信号极差"
+
+msgid "Fair"
+msgstr "信号较弱"
+
+msgid "Good"
+msgstr "信号良好"
+
+msgid "Very Good"
+msgstr "信号很好"
+
+msgid "Excellent"
+msgstr "信号极佳"
+
+msgid "Modem"
+msgstr "调制解调器"
+
+msgid "Firmware"
+msgstr "固件版本"
+
+msgid "IMEI"
+msgstr "IMEI"
+
+msgid "AT Port"
+msgstr "AT 端口"
+
+msgid "Operator"
+msgstr "运营商"
+
+msgid "MCC / MNC"
+msgstr "MCC / MNC"
+
+msgid "LTE Reg"
+msgstr "LTE 注册"
+
+msgid "5G NR Reg"
+msgstr "5G NR 注册"
+
+msgid "Signal"
+msgstr "信号"
+
+msgid "Cell Info"
+msgstr "小区信息"
+
+msgid "RRC State"
+msgstr "RRC 状态"
+
+msgid "Band"
+msgstr "频段"
+
+msgid "Duplex"
+msgstr "双工模式"
+
+msgid "EARFCN"
+msgstr "EARFCN"
+
+msgid "PCI"
+msgstr "PCI"
+
+msgid "Cell ID"
+msgstr "小区 ID"
+
+msgid "TAC"
+msgstr "TAC"
+
+msgid "Carrier Aggregation"
+msgstr "载波聚合"
+
+msgid "Per-Antenna RSRP"
+msgstr "各天线 RSRP"
+
+msgid "Temperature"
+msgstr "温度"
+
+msgid "Data Counters"
+msgstr "数据统计"
+
+msgid "Modem TX"
+msgstr "调制解调器发送"
+
+msgid "Modem RX"
+msgstr "调制解调器接收"
+
+msgid "Band Configuration"
+msgstr "频段配置"
+
+msgid "Network Mode"
+msgstr "网络模式"
+
+msgid "Mode set to: "
+msgstr "网络模式已设置为："
+
+msgid "Apply Mode"
+msgstr "应用模式"
+
+msgid "LTE Bands"
+msgstr "LTE 频段"
+
+msgid "All"
+msgstr "全选"
+
+msgid "None"
+msgstr "全不选"
+
+msgid "LTE bands applied."
+msgstr "LTE 频段已应用。"
+
+msgid "Apply LTE"
+msgstr "应用 LTE"
+
+msgid "Reset All Bands"
+msgstr "重置所有频段"
+
+msgid "All bands restored."
+msgstr "所有频段已恢复。"
+
+msgid "NR Bands"
+msgstr "NR 频段"
+
+msgid "NR bands applied."
+msgstr "NR 频段已应用。"
+
+msgid "Apply NR"
+msgstr "应用 NR"
+
+msgid "Controls"
+msgstr "操作"
+
+msgid "APN set to: "
+msgstr "APN 已设置为："
+
+msgid "Set APN"
+msgstr "设置 APN"
+
+msgid "Refresh Now"
+msgstr "立即刷新"
+
+msgid "Reconnect Modem"
+msgstr "重新连接调制解调器"
+
+msgid "Soft reconnect (CFUN=4 → CFUN=1). Connection will drop for ~5 seconds."
+msgstr "软重连（CFUN=4 → CFUN=1），网络将中断约 5 秒。"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Reconnecting modem..."
+msgstr "正在重新连接调制解调器..."
+
+msgid "Reconnect"
+msgstr "重新连接"
+
+msgid "Reboot Modem"
+msgstr "重启调制解调器"
+
+msgid "Are you sure? Internet will drop for ~20 seconds."
+msgstr "确定重启？网络将中断约 20 秒。"
+
+msgid "Modem is rebooting..."
+msgstr "调制解调器正在重启..."
+
+msgid "Reboot"
+msgstr "重启"
