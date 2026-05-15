@@ -34,7 +34,7 @@ _at() {
     local cmd="$1" max="${2:-4}" i=0
     local tmpf="/tmp/_rm520n_at_$$"
     : > "$tmpf"
-    stty -F "$AT_PORT" -opost -onlcr -icrnl min 0 time 3 2>/dev/null || true
+    stty -F "$AT_PORT" -opost -onlcr -icrnl -icanon min 0 time 3 2>/dev/null || true
     exec 3<>"$AT_PORT"
     printf '%s\r\n' "$cmd" >&3
     while [ "$i" -lt "$max" ]; do
@@ -281,7 +281,7 @@ _method_full_status() {
     local qnwinfo_rat qnwinfo_duplex qnwinfo_mcc qnwinfo_mnc qnwinfo_band qnwinfo_earfcn
     local creg c5greg ca_json temps_json
 
-    stty -F "$AT_PORT" -opost -onlcr -icrnl min 0 time 3 2>/dev/null || true
+    stty -F "$AT_PORT" -opost -onlcr -icrnl -icanon min 0 time 3 2>/dev/null || true
     exec 3<>"$AT_PORT"
 
     raw_gmr="$(    _at_seq 'AT+GMR')"
@@ -380,7 +380,7 @@ _method_refresh() {
     local qnwinfo_rat qnwinfo_duplex qnwinfo_mcc qnwinfo_mnc qnwinfo_band qnwinfo_earfcn
     local pcc_pci
 
-    stty -F "$AT_PORT" -opost -onlcr -icrnl min 0 time 3 2>/dev/null || true
+    stty -F "$AT_PORT" -opost -onlcr -icrnl -icanon min 0 time 3 2>/dev/null || true
     exec 3<>"$AT_PORT"
 
     raw_qcsq="$(   _at_seq 'AT+QCSQ')"
