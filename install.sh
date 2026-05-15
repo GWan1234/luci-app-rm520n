@@ -75,10 +75,24 @@ _install_files() {
         /www/luci-static/resources/view/rm520n/overview.js
 }
 
+_ensure_deps() {
+    command -v stty >/dev/null 2>&1 && return 0
+    printf '[INFO] stty not found — installing coreutils-stty (required for AT port)...\n'
+    if command -v apk >/dev/null 2>&1; then
+        apk add coreutils-stty || { printf 'ERROR: failed to install coreutils-stty\n' >&2; exit 1; }
+    elif command -v opkg >/dev/null 2>&1; then
+        opkg install coreutils-stty || { printf 'ERROR: failed to install coreutils-stty\n' >&2; exit 1; }
+    else
+        printf 'ERROR: stty not found and no package manager available\n' >&2; exit 1
+    fi
+}
+
 main() {
     printf '\n[luci-app-rm520n] Installing RM520NGL LuCI panel\n\n'
 
     [ "$(id -u)" -eq 0 ] || { printf 'ERROR: run as root\n' >&2; exit 1; }
+
+    _ensure_deps
 
     if [ "$REMOTE_MODE" = "1" ]; then
         printf '[INFO] Downloading files from GitHub...\n'

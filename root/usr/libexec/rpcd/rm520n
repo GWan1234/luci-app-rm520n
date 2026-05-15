@@ -85,32 +85,63 @@ _parse_qcsq() {
     rsrq="$( printf '%s' "$qcsq" | cut -d, -f5)"
 }
 
-# +QENG: "servingcell","<rrc>","<rat>","<dup>",mcc,mnc,cell_id,pci,earfcn,
-#         band,bw_ul,bw_dl,tac,rsrp,rsrq,rssi,sinr,cqi,tx_power
+# AT+QENG="servingcell" returns two formats:
+#   CONNECT (single line): "servingcell","CONNECT","rat","dup",mcc,mnc,cell_id,pci,earfcn,band,bw_ul,bw_dl,tac,rsrp,rsrq,rssi,sinr,cqi,tx_power
+#   NOCONN  (multi-line):  line1: "servingcell","NOCONN"
+#                          line2: "LTE","dup",mcc,mnc,cell_id,pci,earfcn,band,bw_ul,bw_dl,tac,rsrp,rsrq,rssi,sinr,cqi,tx_power,-
 # Sets globals: qeng_rrc qeng_rat qeng_duplex qeng_mcc qeng_mnc
 #               qeng_cell_id qeng_pci qeng_earfcn qeng_band qeng_tac
 #               qeng_rsrp qeng_rsrq qeng_rssi qeng_sinr qeng_cqi qeng_tx_power
 _parse_qeng() {
-    local line="$1" data
-    data="$(printf '%s' "$line" | sed 's/+QENG:[[:space:]]*//' | tr -d '"' | tr -d '\r')"
-    qeng_rrc="$(      printf '%s' "$data" | cut -d, -f2)"
-    qeng_rat="$(      printf '%s' "$data" | cut -d, -f3)"
-    qeng_duplex="$(   printf '%s' "$data" | cut -d, -f4)"
-    qeng_mcc="$(      printf '%s' "$data" | cut -d, -f5)"
-    qeng_mnc="$(      printf '%s' "$data" | cut -d, -f6)"
-    qeng_cell_id="$(  printf '%s' "$data" | cut -d, -f7)"
-    qeng_pci="$(      printf '%s' "$data" | cut -d, -f8)"
-    qeng_earfcn="$(   printf '%s' "$data" | cut -d, -f9)"
-    qeng_band="$(     printf '%s' "$data" | cut -d, -f10)"
-    qeng_tac="$(      printf '%s' "$data" | cut -d, -f13)"
-    qeng_rsrp="$(     printf '%s' "$data" | cut -d, -f14)"
-    qeng_rsrq="$(     printf '%s' "$data" | cut -d, -f15)"
-    qeng_rssi="$(     printf '%s' "$data" | cut -d, -f16)"
-    qeng_sinr="$(     printf '%s' "$data" | cut -d, -f17)"
-    qeng_cqi="$(      printf '%s' "$data" | cut -d, -f18)"
-    qeng_tx_power="$( printf '%s' "$data" | cut -d, -f19 | tr -d '\r')"
+    local raw="$1" hdr data d ci_dec
+    hdr="$(printf '%s' "$raw" | grep '^+QENG:' | head -1 | tr -d '\r')"
+    data="$(printf '%s' "$hdr" | sed 's/+QENG:[[:space:]]*//' | tr -d '"' | tr -d '\r')"
+    qeng_rrc="$(printf '%s' "$data" | cut -d, -f2)"
+    case "$qeng_rrc" in
+        CONNECT)
+            qeng_rat="$(      printf '%s' "$data" | cut -d, -f3)"
+            qeng_duplex="$(   printf '%s' "$data" | cut -d, -f4)"
+            qeng_mcc="$(      printf '%s' "$data" | cut -d, -f5)"
+            qeng_mnc="$(      printf '%s' "$data" | cut -d, -f6)"
+            qeng_cell_id="$(  printf '%s' "$data" | cut -d, -f7)"
+            qeng_pci="$(      printf '%s' "$data" | cut -d, -f8)"
+            qeng_earfcn="$(   printf '%s' "$data" | cut -d, -f9)"
+            qeng_band="$(     printf '%s' "$data" | cut -d, -f10)"
+            qeng_tac="$(      printf '%s' "$data" | cut -d, -f13)"
+            qeng_rsrp="$(     printf '%s' "$data" | cut -d, -f14)"
+            qeng_rsrq="$(     printf '%s' "$data" | cut -d, -f15)"
+            qeng_rssi="$(     printf '%s' "$data" | cut -d, -f16)"
+            qeng_sinr="$(     printf '%s' "$data" | cut -d, -f17)"
+            qeng_cqi="$(      printf '%s' "$data" | cut -d, -f18)"
+            qeng_tx_power="$( printf '%s' "$data" | cut -d, -f19 | tr -d '\r')"
+            ;;
+        NOCONN)
+            d="$(printf '%s' "$raw" | grep '^+QENG: "LTE"' | head -1 \
+                 | sed 's/+QENG:[[:space:]]*//' | tr -d '"' | tr -d '\r')"
+            qeng_rat="$(      printf '%s' "$d" | cut -d, -f1)"
+            qeng_duplex="$(   printf '%s' "$d" | cut -d, -f2)"
+            qeng_mcc="$(      printf '%s' "$d" | cut -d, -f3)"
+            qeng_mnc="$(      printf '%s' "$d" | cut -d, -f4)"
+            qeng_cell_id="$(  printf '%s' "$d" | cut -d, -f5)"
+            qeng_pci="$(      printf '%s' "$d" | cut -d, -f6)"
+            qeng_earfcn="$(   printf '%s' "$d" | cut -d, -f7)"
+            qeng_band="$(     printf '%s' "$d" | cut -d, -f8)"
+            qeng_tac="$(      printf '%s' "$d" | cut -d, -f11)"
+            qeng_rsrp="$(     printf '%s' "$d" | cut -d, -f12)"
+            qeng_rsrq="$(     printf '%s' "$d" | cut -d, -f13)"
+            qeng_rssi="$(     printf '%s' "$d" | cut -d, -f14)"
+            qeng_sinr="$(     printf '%s' "$d" | cut -d, -f15)"
+            qeng_cqi="$(      printf '%s' "$d" | cut -d, -f16)"
+            qeng_tx_power="$( printf '%s' "$d" | cut -d, -f17 | tr -d '\r')"
+            ;;
+    esac
     [ "$qeng_cqi"      = "-" ] && qeng_cqi=""
     [ "$qeng_tx_power" = "-" ] && qeng_tx_power=""
+    # Normalize cell_id to 7 uppercase hex digits (LTE ECI is 28-bit)
+    if [ -n "$qeng_cell_id" ]; then
+        ci_dec="$(printf '%d' "0x${qeng_cell_id}" 2>/dev/null)"
+        [ -n "$ci_dec" ] && qeng_cell_id="$(printf '%07X' "$ci_dec")"
+    fi
 }
 
 # +QRSRP: rx0,rx1,rx2,rx3  (-140 = antenna not connected → null)
@@ -173,15 +204,25 @@ _parse_qnwinfo() {
     qnwinfo_mnc="$(   printf '%s' "$plmn_str" | cut -c4-)"
 }
 
-# +CEREG: <n>,<stat>[,"<tac>","<ci>",<act>]  (n=2 includes location info)
-# Sets globals: cereg_tac cereg_ci  (reg status parsed separately via _parse_reg_stat)
+# +CEREG response: <n>,<stat>,"<tac>","<ci>",<act>   URC: <stat>,"<tac>","<ci>",<act>
+# Distinguishes by checking f2: single digit → response format (tac=f3,ci=f4);
+# non-digit → URC format (tac=f2,ci=f3).
 _parse_cereg() {
-    local raw="$1" line data
+    local raw="$1" line data f2
     line="$(printf '%s' "$raw" | grep '+CEREG:' | head -1)"
     [ -z "$line" ] && return
     data="$(printf '%s' "$line" | sed 's/+CEREG:[[:space:]]*//' | tr -d '"' | tr -d '\r')"
-    cereg_tac="$(printf '%s' "$data" | cut -d, -f3)"
-    cereg_ci="$( printf '%s' "$data" | cut -d, -f4)"
+    f2="$(printf '%s' "$data" | cut -d, -f2 | tr -d ' ')"
+    case "$f2" in
+        [0-5])
+            cereg_tac="$(printf '%s' "$data" | cut -d, -f3)"
+            cereg_ci="$( printf '%s' "$data" | cut -d, -f4)"
+            ;;
+        *)
+            cereg_tac="$(printf '%s' "$data" | cut -d, -f2)"
+            cereg_ci="$( printf '%s' "$data" | cut -d, -f3)"
+            ;;
+    esac
 }
 
 # +COPS: 0,0,"Operator name",7
@@ -243,10 +284,17 @@ _build_ca_json() {
     rm -f "$tmpf"
 }
 
-# +CREG: <n>,<stat>[,...] → human-readable registration status
+# +CREG/CEREG/C5GREG response: <n>,<stat>[,...]  URC: <stat>[,<tac>,<ci>,<act>]
+# Handles both by checking whether f2 is a stat digit (response) or not (URC → f1 is stat).
 _parse_reg_stat() {
-    local raw="$1" stat
-    stat="$(printf '%s' "$raw" | cut -d, -f2 | tr -d ' \r')"
+    local raw="$1" data f1 f2 stat
+    data="$(printf '%s' "$raw" | sed 's/+C[5E]*[RG]*REG:[[:space:]]*//' | tr -d '" \r')"
+    f1="$(printf '%s' "$data" | cut -d, -f1)"
+    f2="$(printf '%s' "$data" | cut -d, -f2)"
+    case "$f2" in
+        [0-5]) stat="$f2" ;;
+        *)     stat="$f1" ;;
+    esac
     case "$stat" in
         0) printf 'Not registered' ;;
         1) printf 'Registered (home)' ;;
@@ -271,7 +319,7 @@ _method_full_status() {
     local raw_gmr raw_gsn raw_cereg raw_c5greg raw_cops raw_qcsq raw_qeng
     local raw_qnwinfo raw_qrsrp raw_qcainfo raw_qtemp raw_qgdcnt
     local raw_lte raw_nr raw_mode
-    local fw imei cereg_raw c5greg_raw qcsq_raw cell_raw lte_bands nr_bands mode
+    local fw imei cereg_raw c5greg_raw qcsq_raw lte_bands nr_bands mode
     local tech rssi rsrp sinr rsrq
     local qeng_rrc qeng_rat qeng_duplex qeng_mcc qeng_mnc
     local qeng_cell_id qeng_pci qeng_earfcn qeng_band qeng_tac
@@ -309,13 +357,12 @@ _method_full_status() {
     cereg_raw="$( printf '%s' "$raw_cereg"  | grep '+CEREG:'       | head -1 | tr -d '\r')"
     c5greg_raw="$(printf '%s' "$raw_c5greg" | grep '+C5GREG:'      | head -1 | tr -d '\r')"
     qcsq_raw="$(  printf '%s' "$raw_qcsq"   | grep '^+QCSQ'        | head -1 | sed 's/+QCSQ: //' | tr -d '\r"')"
-    cell_raw="$(  printf '%s' "$raw_qeng"   | grep '^+QENG'        | head -1 | tr -d '\r')"
     lte_bands="$( printf '%s' "$raw_lte"    | grep '^+QNWPREFCFG'  | head -1 | sed 's/[^,]*,//' | tr -d '\r')"
     nr_bands="$(  printf '%s' "$raw_nr"     | grep '^+QNWPREFCFG'  | head -1 | sed 's/[^,]*,//' | tr -d '\r')"
     mode="$(      printf '%s' "$raw_mode"   | grep '^+QNWPREFCFG'  | head -1 | sed 's/[^,]*,//' | tr -d '\r"')"
 
     _parse_qcsq    "$qcsq_raw"
-    _parse_qeng    "$cell_raw"
+    _parse_qeng    "$raw_qeng"
     _parse_qnwinfo "$raw_qnwinfo"
     _parse_qrsrp   "$raw_qrsrp"
     _parse_cereg   "$raw_cereg"
@@ -371,7 +418,7 @@ _method_refresh() {
     _find_at_port || { printf '{"error":"AT port not found"}'; return; }
     _at_lock      || { printf '{"error":"AT port busy"}';      return; }
 
-    local raw_qcsq raw_qeng raw_qrsrp raw_qnwinfo raw_qcainfo qcsq_raw cell_raw
+    local raw_qcsq raw_qeng raw_qrsrp raw_qnwinfo raw_qcainfo qcsq_raw
     local tech rssi rsrp sinr rsrq
     local qeng_rrc qeng_rat qeng_duplex qeng_mcc qeng_mnc
     local qeng_cell_id qeng_pci qeng_earfcn qeng_band qeng_tac
@@ -393,10 +440,9 @@ _method_refresh() {
     _at_unlock
 
     qcsq_raw="$(printf '%s' "$raw_qcsq" | grep '^+QCSQ' | head -1 | sed 's/+QCSQ: //' | tr -d '\r"')"
-    cell_raw="$( printf '%s' "$raw_qeng" | grep '^+QENG' | head -1 | tr -d '\r')"
 
     _parse_qcsq    "$qcsq_raw"
-    _parse_qeng    "$cell_raw"
+    _parse_qeng    "$raw_qeng"
     _parse_qnwinfo "$raw_qnwinfo"
     _parse_qrsrp   "$raw_qrsrp"
     pcc_pci="$(printf '%s' "$raw_qcainfo" | grep '^+QCAINFO' | head -1 \
@@ -454,13 +500,13 @@ _method_signal() {
 _method_cell() {
     _find_at_port || { printf '{"error":"AT port not found"}'; return; }
     _at_lock      || { printf '{"error":"AT port busy"}';      return; }
-    local cell_raw
+    local raw_qeng
     local qeng_rrc qeng_rat qeng_duplex qeng_mcc qeng_mnc
     local qeng_cell_id qeng_pci qeng_earfcn qeng_band qeng_tac
     local qeng_rsrp qeng_rsrq qeng_rssi qeng_sinr qeng_cqi qeng_tx_power
-    cell_raw="$(_at 'AT+QENG="servingcell"' | grep '^+QENG' | head -1 | tr -d '\r')"
+    raw_qeng="$(_at 'AT+QENG="servingcell"')"
     _at_unlock
-    _parse_qeng "$cell_raw"
+    _parse_qeng "$raw_qeng"
     printf '{"rrc_state":%s,"rat":%s,"duplex":%s,"mcc":%s,"mnc":%s,"cell_id":%s,"pci":%s,"earfcn":%s,"band":%s,"tac":%s,"rsrp":%s,"rsrq":%s,"rssi":%s,"sinr":%s,"cqi":%s,"tx_power":%s}' \
         "$(_json_str "$qeng_rrc")"   "$(_json_str "$qeng_rat")"    "$(_json_str "$qeng_duplex")" \
         "$(_json_str "$qeng_mcc")"   "$(_json_str "$qeng_mnc")"    "$(_json_str "$qeng_cell_id")" \
