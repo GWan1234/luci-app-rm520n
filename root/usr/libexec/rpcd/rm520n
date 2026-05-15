@@ -28,14 +28,30 @@ _at_lock() {
 
 _at_unlock() { rm -rf "$AT_LOCK" 2>/dev/null || true; }
 
+# Drain stale data from the kernel tty RX buffer on an already-open fd3.
+# Uses VTIME=1 (100ms) so each read returns quickly when nothing is left.
+# Prevents old echoes/URCs from poisoning the first real AT command reads.
+_drain_at_port() {
+    local _i _tmpf="/tmp/_rm520n_drain_$$"
+    stty -F "$AT_PORT" -opost -onlcr -icrnl -icanon -ixon -ixoff -hupcl -echo min 0 time 1 2>/dev/null || true
+    for _i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+        : > "$_tmpf"
+        dd <&3 bs=4096 count=1 2>/dev/null > "$_tmpf"
+        [ ! -s "$_tmpf" ] && break
+    done
+    rm -f "$_tmpf"
+    stty -F "$AT_PORT" -icanon min 0 time 3 2>/dev/null || true
+}
+
 # Configure tty, send one AT command, read until OK/ERROR/CME ERROR or timeout.
 # Opens and closes fd3 per call. Safe for use by individual debug methods.
 _at() {
     local cmd="$1" max="${2:-4}" i=0
     local tmpf="/tmp/_rm520n_at_$$"
     : > "$tmpf"
-    stty -F "$AT_PORT" -opost -onlcr -icrnl -icanon min 0 time 3 2>/dev/null || true
+    stty -F "$AT_PORT" -opost -onlcr -icrnl -icanon -ixon -ixoff -hupcl -echo min 0 time 3 2>/dev/null || true
     exec 3<>"$AT_PORT"
+    _drain_at_port
     printf '%s\r\n' "$cmd" >&3
     while [ "$i" -lt "$max" ]; do
         dd <&3 bs=4096 count=1 2>/dev/null >> "$tmpf"
@@ -329,8 +345,9 @@ _method_full_status() {
     local qnwinfo_rat qnwinfo_duplex qnwinfo_mcc qnwinfo_mnc qnwinfo_band qnwinfo_earfcn
     local creg c5greg ca_json temps_json
 
-    stty -F "$AT_PORT" -opost -onlcr -icrnl -icanon min 0 time 3 2>/dev/null || true
+    stty -F "$AT_PORT" -opost -onlcr -icrnl -icanon -ixon -ixoff -hupcl -echo min 0 time 3 2>/dev/null || true
     exec 3<>"$AT_PORT"
+    _drain_at_port
 
     raw_gmr="$(    _at_seq 'AT+GMR')"
     raw_gsn="$(    _at_seq 'AT+GSN')"
@@ -427,8 +444,9 @@ _method_refresh() {
     local qnwinfo_rat qnwinfo_duplex qnwinfo_mcc qnwinfo_mnc qnwinfo_band qnwinfo_earfcn
     local pcc_pci
 
-    stty -F "$AT_PORT" -opost -onlcr -icrnl -icanon min 0 time 3 2>/dev/null || true
+    stty -F "$AT_PORT" -opost -onlcr -icrnl -icanon -ixon -ixoff -hupcl -echo min 0 time 3 2>/dev/null || true
     exec 3<>"$AT_PORT"
+    _drain_at_port
 
     raw_qcsq="$(   _at_seq 'AT+QCSQ')"
     raw_qeng="$(   _at_seq 'AT+QENG="servingcell"')"
