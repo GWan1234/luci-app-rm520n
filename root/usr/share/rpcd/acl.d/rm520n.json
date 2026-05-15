@@ -3,6 +3,7 @@
     "description": "LuCI RM520NGL modem management access",
     "read": {
       "ubus": {
+        "session": [ "access", "login" ],
         "rm520n": [ "full_status", "refresh", "status", "signal", "cell", "bands" ]
       }
     },
