@@ -355,16 +355,15 @@ return view.extend({
                 row('EARFCN',    E('span', { 'id': 'cell-earfcn' }, d.earfcn != null ? String(d.earfcn) : '—')),
                 row('PCI',       E('span', { 'id': 'cell-pci'    }, d.pci    != null ? String(d.pci)    : '—')),
                 row('Cell ID',   cellIdContent),
-                d.tac ? row('TAC', d.tac) : null,
-            ].filter(Boolean))
+                row('TAC', d.tac || '—'),
+            ])
         ]);
 
-        // Card 4 — Carrier Aggregation (optional)
-        var caCard = null;
-        if (d.ca && d.ca.length) {
-            caCard = E('div', { 'class': 'rm-card' }, [
-                E('h3', {}, 'Carrier Aggregation'),
-                E('div', {}, d.ca.map(function(c) {
+        // Card 4 — Carrier Aggregation
+        var caCard = E('div', { 'class': 'rm-card' }, [
+            E('h3', {}, 'Carrier Aggregation'),
+            (d.ca && d.ca.length)
+                ? E('div', {}, d.ca.map(function(c) {
                     return E('div', { 'class': 'rm-ca-row' }, [
                         E('span', { 'class': 'rm-badge',
                             'style': 'background:' + (c.type === 'PCC' ? '#1d4ed8' : '#475569') + ';color:#fff;min-width:32px;text-align:center' },
@@ -379,33 +378,29 @@ return view.extend({
                             : null,
                     ].filter(Boolean));
                 }))
-            ]);
-        }
+                : E('span', { 'style': 'color:var(--muted)' }, '—')
+        ]);
 
-        // Card 5 — Per-antenna RSRP (optional, live)
-        var antCard = null;
+        // Card 5 — Per-antenna RSRP (live)
         var rxKeys = ['rx0', 'rx1', 'rx2', 'rx3'];
-        if (rxKeys.some(function(k) { return d['rsrp_' + k] != null; })) {
-            antCard = E('div', { 'class': 'rm-card' }, [
-                E('h3', {}, 'Per-Antenna RSRP'),
-                E('div', { 'class': 'rm-ant-grid' }, rxKeys.map(function(rx) {
-                    var v = d['rsrp_' + rx];
-                    return E('div', { 'class': 'rm-ant-cell' }, [
-                        E('div', { 'class': 'rm-ant-label' }, rx.toUpperCase()),
-                        E('div', { 'class': 'rm-ant-val', 'id': 'ant-' + rx,
-                            'style': 'color:' + (v != null ? qualityColor(v) : 'var(--muted)') },
-                            v != null ? v + ' dBm' : '—')
-                    ]);
-                }))
-            ]);
-        }
+        var antCard = E('div', { 'class': 'rm-card' }, [
+            E('h3', {}, 'Per-Antenna RSRP'),
+            E('div', { 'class': 'rm-ant-grid' }, rxKeys.map(function(rx) {
+                var v = d['rsrp_' + rx];
+                return E('div', { 'class': 'rm-ant-cell' }, [
+                    E('div', { 'class': 'rm-ant-label' }, rx.toUpperCase()),
+                    E('div', { 'class': 'rm-ant-val', 'id': 'ant-' + rx,
+                        'style': 'color:' + (v != null ? qualityColor(v) : 'var(--muted)') },
+                        v != null ? v + ' dBm' : '—')
+                ]);
+            }))
+        ]);
 
-        // Card 6 — Temperature (optional, static — sensor names and count vary by firmware)
-        var tempCard = null;
-        if (d.temps && d.temps.length) {
-            tempCard = E('div', { 'class': 'rm-card' }, [
-                E('h3', {}, 'Temperature'),
-                E('table', { 'class': 'rm-table' },
+        // Card 6 — Temperature (sensor names vary by firmware)
+        var tempCard = E('div', { 'class': 'rm-card' }, [
+            E('h3', {}, 'Temperature'),
+            (d.temps && d.temps.length)
+                ? E('table', { 'class': 'rm-table' },
                     d.temps.map(function(t) {
                         var label = TEMP_LABELS[t.name] || t.name;
                         return row(label, t.value != null
@@ -413,9 +408,9 @@ return view.extend({
                                 t.value + ' °C')
                             : '—');
                     })
-                )
-            ]);
-        }
+                  )
+                : E('span', { 'style': 'color:var(--muted)' }, '—')
+        ]);
 
         // Card 7 — Data counters
         var countersCard = E('div', { 'class': 'rm-card' }, [
@@ -594,7 +589,7 @@ return view.extend({
             countersCard,
             bandsCard,
             controlsCard,
-        ].filter(Boolean));
+        ]);
     },
 
     handleSaveApply: null,
