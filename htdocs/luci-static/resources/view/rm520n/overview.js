@@ -48,6 +48,7 @@ var CSS =
     + '.rm-ant-cell{text-align:center;padding:4px 0}'
     + '.rm-ant-label{font-size:.75em;color:var(--muted);margin-bottom:3px}'
     + '.rm-ant-val{font-size:.95em;font-weight:700}'
+    + '.rm-ant-tech{font-size:.7em;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin:6px 0 3px}'
     + '.rm-controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}'
     + '.rm-input{'
     + 'background:var(--bg);border:1px solid var(--border);color:var(--text);'
@@ -276,6 +277,18 @@ function updateSignal(d) {
         el.style.color = v != null ? qualityColor(v) : 'var(--muted)';
         el.textContent = v != null ? v + ' dBm' : '—';
     });
+    ['rx0', 'rx1', 'rx2', 'rx3'].forEach(function(rx) {
+        var el = document.getElementById('ant-nr-' + rx);
+        if (!el) return;
+        var v = d['rsrp_nr_' + rx];
+        el.style.color = v != null ? qualityColor(v) : 'var(--muted)';
+        el.textContent = v != null ? v + ' dBm' : '—';
+    });
+    var hasNr = ['rx0', 'rx1', 'rx2', 'rx3'].some(function(rx) { return d['rsrp_nr_' + rx] != null; });
+    var nrSec  = document.getElementById('ant-nr-section');
+    var lteLbl = document.getElementById('ant-lte-label');
+    if (nrSec)  nrSec.style.display  = hasNr ? '' : 'none';
+    if (lteLbl) lteLbl.style.display = hasNr ? '' : 'none';
 }
 
 // ── View ──────────────────────────────────────────────────────────────────────
@@ -383,8 +396,11 @@ return view.extend({
 
         // Card 5 — Per-antenna RSRP (live)
         var rxKeys = ['rx0', 'rx1', 'rx2', 'rx3'];
+        var hasNr = rxKeys.some(function(rx) { return d['rsrp_nr_' + rx] != null; });
         var antCard = E('div', { 'class': 'rm-card' }, [
             E('h3', {}, _('Per-Antenna RSRP')),
+            E('div', { 'id': 'ant-lte-label', 'class': 'rm-ant-tech',
+                'style': hasNr ? '' : 'display:none' }, 'LTE'),
             E('div', { 'class': 'rm-ant-grid' }, rxKeys.map(function(rx) {
                 var v = d['rsrp_' + rx];
                 return E('div', { 'class': 'rm-ant-cell' }, [
@@ -393,7 +409,19 @@ return view.extend({
                         'style': 'color:' + (v != null ? qualityColor(v) : 'var(--muted)') },
                         v != null ? v + ' dBm' : '—')
                 ]);
-            }))
+            })),
+            E('div', { 'id': 'ant-nr-section', 'style': hasNr ? '' : 'display:none' }, [
+                E('div', { 'class': 'rm-ant-tech' }, 'NR5G'),
+                E('div', { 'class': 'rm-ant-grid' }, rxKeys.map(function(rx) {
+                    var v = d['rsrp_nr_' + rx];
+                    return E('div', { 'class': 'rm-ant-cell' }, [
+                        E('div', { 'class': 'rm-ant-label' }, rx.toUpperCase()),
+                        E('div', { 'class': 'rm-ant-val', 'id': 'ant-nr-' + rx,
+                            'style': 'color:' + (v != null ? qualityColor(v) : 'var(--muted)') },
+                            v != null ? v + ' dBm' : '—')
+                    ]);
+                }))
+            ])
         ]);
 
         // Card 6 — Temperature (sensor names vary by firmware)

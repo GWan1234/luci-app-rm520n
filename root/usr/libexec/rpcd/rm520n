@@ -160,20 +160,31 @@ _parse_qeng() {
     fi
 }
 
-# +QRSRP: rx0,rx1,rx2,rx3  (-140 = antenna not connected → null)
-# Sets globals: rsrp_rx0 rsrp_rx1 rsrp_rx2 rsrp_rx3
+# +QRSRP: rx0,rx1,rx2,rx3[,TECH]  (-140 = antenna not connected → null)
+# NSA mode returns two lines: one ending in ,LTE and one in ,NR5G
+# Sets globals: rsrp_rx0..3 (LTE), rsrp_nr_rx0..3 (NR5G)
 _parse_qrsrp() {
-    local raw="$1" data
-    data="$(printf '%s' "$raw" | grep '+QRSRP:' | head -1 \
+    local raw="$1" lte_data nr_data
+    lte_data="$(printf '%s' "$raw" | grep '+QRSRP:' | grep -v ',NR5G' | head -1 \
             | sed 's/+QRSRP:[[:space:]]*//' | tr -d ' \r')"
-    rsrp_rx0="$(printf '%s' "$data" | cut -d, -f1)"
-    rsrp_rx1="$(printf '%s' "$data" | cut -d, -f2)"
-    rsrp_rx2="$(printf '%s' "$data" | cut -d, -f3)"
-    rsrp_rx3="$(printf '%s' "$data" | cut -d, -f4)"
+    nr_data="$( printf '%s' "$raw" | grep '+QRSRP:' | grep ',NR5G'   | head -1 \
+            | sed 's/+QRSRP:[[:space:]]*//' | tr -d ' \r')"
+    rsrp_rx0="$(printf '%s' "$lte_data" | cut -d, -f1)"
+    rsrp_rx1="$(printf '%s' "$lte_data" | cut -d, -f2)"
+    rsrp_rx2="$(printf '%s' "$lte_data" | cut -d, -f3)"
+    rsrp_rx3="$(printf '%s' "$lte_data" | cut -d, -f4)"
     [ "$rsrp_rx0" = "-140" ] && rsrp_rx0=""
     [ "$rsrp_rx1" = "-140" ] && rsrp_rx1=""
     [ "$rsrp_rx2" = "-140" ] && rsrp_rx2=""
     [ "$rsrp_rx3" = "-140" ] && rsrp_rx3=""
+    rsrp_nr_rx0="$(printf '%s' "$nr_data" | cut -d, -f1)"
+    rsrp_nr_rx1="$(printf '%s' "$nr_data" | cut -d, -f2)"
+    rsrp_nr_rx2="$(printf '%s' "$nr_data" | cut -d, -f3)"
+    rsrp_nr_rx3="$(printf '%s' "$nr_data" | cut -d, -f4)"
+    [ "$rsrp_nr_rx0" = "-140" ] && rsrp_nr_rx0=""
+    [ "$rsrp_nr_rx1" = "-140" ] && rsrp_nr_rx1=""
+    [ "$rsrp_nr_rx2" = "-140" ] && rsrp_nr_rx2=""
+    [ "$rsrp_nr_rx3" = "-140" ] && rsrp_nr_rx3=""
 }
 
 # +QTEMP: "sensor",value  (multiple lines, sensor names vary by firmware)
@@ -341,6 +352,7 @@ _method_full_status() {
     local qeng_cell_id qeng_pci qeng_earfcn qeng_band qeng_tac
     local qeng_rsrp qeng_rsrq qeng_rssi qeng_sinr qeng_cqi qeng_tx_power
     local rsrp_rx0 rsrp_rx1 rsrp_rx2 rsrp_rx3
+    local rsrp_nr_rx0 rsrp_nr_rx1 rsrp_nr_rx2 rsrp_nr_rx3
     local operator modem_tx modem_rx cereg_tac cereg_ci pcc_pci
     local qnwinfo_rat qnwinfo_duplex qnwinfo_mcc qnwinfo_mnc qnwinfo_band qnwinfo_earfcn
     local creg c5greg ca_json temps_json
@@ -416,11 +428,15 @@ _method_full_status() {
     printf '"tac":%s,'         "$(_json_str "${qeng_tac:-$cereg_tac}")"
     printf '"cqi":%s,'         "$(_json_num "$qeng_cqi")"
     printf '"tx_power":%s,'    "$(_json_num "$qeng_tx_power")"
-    printf '"rsrp_rx0":%s,'    "$(_json_num "$rsrp_rx0")"
-    printf '"rsrp_rx1":%s,'    "$(_json_num "$rsrp_rx1")"
-    printf '"rsrp_rx2":%s,'    "$(_json_num "$rsrp_rx2")"
-    printf '"rsrp_rx3":%s,'    "$(_json_num "$rsrp_rx3")"
-    printf '"temps":%s,'       "$temps_json"
+    printf '"rsrp_rx0":%s,'       "$(_json_num "$rsrp_rx0")"
+    printf '"rsrp_rx1":%s,'       "$(_json_num "$rsrp_rx1")"
+    printf '"rsrp_rx2":%s,'       "$(_json_num "$rsrp_rx2")"
+    printf '"rsrp_rx3":%s,'       "$(_json_num "$rsrp_rx3")"
+    printf '"rsrp_nr_rx0":%s,'    "$(_json_num "$rsrp_nr_rx0")"
+    printf '"rsrp_nr_rx1":%s,'    "$(_json_num "$rsrp_nr_rx1")"
+    printf '"rsrp_nr_rx2":%s,'    "$(_json_num "$rsrp_nr_rx2")"
+    printf '"rsrp_nr_rx3":%s,'    "$(_json_num "$rsrp_nr_rx3")"
+    printf '"temps":%s,'          "$temps_json"
     printf '"modem_tx":%s,'    "$(_json_num "$modem_tx")"
     printf '"modem_rx":%s,'    "$(_json_num "$modem_rx")"
     printf '"ca":%s,'          "$ca_json"
@@ -441,6 +457,7 @@ _method_refresh() {
     local qeng_cell_id qeng_pci qeng_earfcn qeng_band qeng_tac
     local qeng_rsrp qeng_rsrq qeng_rssi qeng_sinr qeng_cqi qeng_tx_power
     local rsrp_rx0 rsrp_rx1 rsrp_rx2 rsrp_rx3
+    local rsrp_nr_rx0 rsrp_nr_rx1 rsrp_nr_rx2 rsrp_nr_rx3
     local qnwinfo_rat qnwinfo_duplex qnwinfo_mcc qnwinfo_mnc qnwinfo_band qnwinfo_earfcn
     local pcc_pci
 
@@ -478,10 +495,14 @@ _method_refresh() {
     printf '"pci":%s,'        "$(_json_num "${qeng_pci:-$pcc_pci}")"
     printf '"earfcn":%s,'     "$(_json_num "${qeng_earfcn:-$qnwinfo_earfcn}")"
     printf '"band":%s,'       "$(_json_num "${qeng_band:-$qnwinfo_band}")"
-    printf '"rsrp_rx0":%s,'   "$(_json_num "$rsrp_rx0")"
-    printf '"rsrp_rx1":%s,'   "$(_json_num "$rsrp_rx1")"
-    printf '"rsrp_rx2":%s,'   "$(_json_num "$rsrp_rx2")"
-    printf '"rsrp_rx3":%s'    "$(_json_num "$rsrp_rx3")"
+    printf '"rsrp_rx0":%s,'      "$(_json_num "$rsrp_rx0")"
+    printf '"rsrp_rx1":%s,'      "$(_json_num "$rsrp_rx1")"
+    printf '"rsrp_rx2":%s,'      "$(_json_num "$rsrp_rx2")"
+    printf '"rsrp_rx3":%s,'      "$(_json_num "$rsrp_rx3")"
+    printf '"rsrp_nr_rx0":%s,'   "$(_json_num "$rsrp_nr_rx0")"
+    printf '"rsrp_nr_rx1":%s,'   "$(_json_num "$rsrp_nr_rx1")"
+    printf '"rsrp_nr_rx2":%s,'   "$(_json_num "$rsrp_nr_rx2")"
+    printf '"rsrp_nr_rx3":%s'    "$(_json_num "$rsrp_nr_rx3")"
     printf '}'
 }
 
