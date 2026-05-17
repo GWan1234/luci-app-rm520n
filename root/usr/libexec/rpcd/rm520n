@@ -270,11 +270,12 @@ _parse_qgdcnt() {
     modem_rx="$(printf '%s' "$data" | cut -d, -f2)"
 }
 
-# +QCAINFO: "pcc|scc",earfcn,bw,"LTE BAND N",dl_state,pci,rsrp,rsrq,rssi,sinr
+# +QCAINFO: "pcc|scc",earfcn,bw,"TECH BAND N",dl_state,pci,rsrp,rsrq,rssi,sinr
+# NR5G SCC may use short format (5 fields): "scc",earfcn,bw,"NR5G BAND N",pci — no signal data.
 # Builds and prints a JSON array (or null if no data).
 _build_ca_json() {
     local raw="$1" tmpf="/tmp/_rm520n_ca_$$" _first _line _data
-    local _type _earfcn _bw _band_str _band _pci _rsrp _rsrq _rssi _sinr
+    local _type _earfcn _bw _band_str _band _pci _rsrp _rsrq _rssi _sinr _f6
 
     printf '%s' "$raw" | grep '^+QCAINFO' | while IFS= read -r _line; do
         _data="$(printf '%s' "$_line" | sed 's/+QCAINFO:[[:space:]]*//' | tr -d '"' | tr -d '\r')"
@@ -283,11 +284,21 @@ _build_ca_json() {
         _bw="$(      printf '%s' "$_data" | cut -d, -f3)"
         _band_str="$(printf '%s' "$_data" | cut -d, -f4)"
         _band="$(    printf '%s' "$_band_str" | sed 's/.*BAND[[:space:]]*//')"
-        _pci="$(     printf '%s' "$_data" | cut -d, -f6)"
-        _rsrp="$(    printf '%s' "$_data" | cut -d, -f7)"
-        _rsrq="$(    printf '%s' "$_data" | cut -d, -f8)"
-        _rssi="$(    printf '%s' "$_data" | cut -d, -f9)"
-        _sinr="$(    printf '%s' "$_data" | cut -d, -f10 | tr -d '\r')"
+        _f6="$(      printf '%s' "$_data" | cut -d, -f6)"
+        if [ -z "$_f6" ]; then
+            _pci="$(printf '%s' "$_data" | cut -d, -f5)"
+            _rsrp=""; _rsrq=""; _rssi=""; _sinr=""
+        else
+            _pci="$_f6"
+            _rsrp="$(printf '%s' "$_data" | cut -d, -f7)"
+            _rsrq="$(printf '%s' "$_data" | cut -d, -f8)"
+            _rssi="$(printf '%s' "$_data" | cut -d, -f9)"
+            _sinr="$(printf '%s' "$_data" | cut -d, -f10 | tr -d '\r')"
+            [ "$_rsrp" = "0" ] || [ "$_rsrp" = "-" ] && _rsrp=""
+            [ "$_rsrq" = "-" ] && _rsrq=""
+            [ "$_rssi" = "-" ] && _rssi=""
+            [ "$_sinr" = "-" ] && _sinr=""
+        fi
         printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
             "$_type" "$_earfcn" "$_bw" "$_band" "$_pci" "$_rsrp" "$_rsrq" "$_rssi" "$_sinr"
     done > "$tmpf"
@@ -459,7 +470,7 @@ _method_refresh() {
     local rsrp_rx0 rsrp_rx1 rsrp_rx2 rsrp_rx3
     local rsrp_nr_rx0 rsrp_nr_rx1 rsrp_nr_rx2 rsrp_nr_rx3
     local qnwinfo_rat qnwinfo_duplex qnwinfo_mcc qnwinfo_mnc qnwinfo_band qnwinfo_earfcn
-    local pcc_pci
+    local pcc_pci ca_json
 
     stty -F "$AT_PORT" -opost -onlcr -icrnl -icanon -ixon -ixoff -hupcl -echo min 0 time 3 2>/dev/null || true
     exec 3<>"$AT_PORT"
@@ -482,6 +493,7 @@ _method_refresh() {
     _parse_qrsrp   "$raw_qrsrp"
     pcc_pci="$(printf '%s' "$raw_qcainfo" | grep '^+QCAINFO' | head -1 \
                | sed 's/+QCAINFO:[[:space:]]*//' | tr -d '"' | cut -d, -f6 | tr -d ' \r')"
+    ca_json="$(_build_ca_json "$raw_qcainfo")"
 
     printf '{'
     printf '"technology":%s,' "$(_json_str "$tech")"
@@ -502,7 +514,8 @@ _method_refresh() {
     printf '"rsrp_nr_rx0":%s,'   "$(_json_num "$rsrp_nr_rx0")"
     printf '"rsrp_nr_rx1":%s,'   "$(_json_num "$rsrp_nr_rx1")"
     printf '"rsrp_nr_rx2":%s,'   "$(_json_num "$rsrp_nr_rx2")"
-    printf '"rsrp_nr_rx3":%s'    "$(_json_num "$rsrp_nr_rx3")"
+    printf '"rsrp_nr_rx3":%s,'   "$(_json_num "$rsrp_nr_rx3")"
+    printf '"ca":%s'             "$ca_json"
     printf '}'
 }
 

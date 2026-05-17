@@ -162,6 +162,20 @@ function tempColor(v) {
     return 'var(--green)';
 }
 
+function buildCaRow(c) {
+    return E('div', { 'class': 'rm-ca-row' }, [
+        E('span', { 'class': 'rm-badge',
+            'style': 'background:' + (c.type === 'PCC' ? '#1d4ed8' : '#475569') + ';color:#fff;min-width:32px;text-align:center' },
+            c.type || '?'),
+        E('span', {}, 'B' + (c.band != null ? c.band : '?')),
+        E('span', { 'style': 'color:var(--muted);font-size:.85em' }, 'EARFCN'),
+        E('span', {}, c.earfcn != null ? String(c.earfcn) : '?'),
+        c.pci  != null ? E('span', { 'style': 'color:var(--muted);font-size:.85em' }, 'PCI') : null,
+        c.pci  != null ? E('span', {}, String(c.pci)) : null,
+        c.rsrp != null ? E('span', { 'style': 'color:' + qualityColor(c.rsrp) }, c.rsrp + ' dBm') : null,
+    ].filter(Boolean));
+}
+
 function signalQualityBadge(rsrp, sinr) {
     var r = parseInt(rsrp), s = parseInt(sinr);
     if (isNaN(r)) return E('span', {}, '');
@@ -289,6 +303,19 @@ function updateSignal(d) {
     var lteLbl = document.getElementById('ant-lte-label');
     if (nrSec)  nrSec.style.display  = hasNr ? '' : 'none';
     if (lteLbl) lteLbl.style.display = hasNr ? '' : 'none';
+
+    if (d.ca !== undefined) {
+        var caBody = document.getElementById('ca-body');
+        if (caBody) {
+            while (caBody.firstChild) caBody.removeChild(caBody.firstChild);
+            if (d.ca && d.ca.length) {
+                d.ca.forEach(function(c) { caBody.appendChild(buildCaRow(c)); });
+            } else {
+                caBody.style.color = 'var(--muted)';
+                caBody.textContent = '—';
+            }
+        }
+    }
 }
 
 // ── View ──────────────────────────────────────────────────────────────────────
@@ -376,22 +403,8 @@ return view.extend({
         var caCard = E('div', { 'class': 'rm-card' }, [
             E('h3', {}, _('Carrier Aggregation')),
             (d.ca && d.ca.length)
-                ? E('div', {}, d.ca.map(function(c) {
-                    return E('div', { 'class': 'rm-ca-row' }, [
-                        E('span', { 'class': 'rm-badge',
-                            'style': 'background:' + (c.type === 'PCC' ? '#1d4ed8' : '#475569') + ';color:#fff;min-width:32px;text-align:center' },
-                            c.type || '?'),
-                        E('span', {}, 'B' + (c.band != null ? c.band : '?')),
-                        E('span', { 'style': 'color:var(--muted);font-size:.85em' }, 'EARFCN'),
-                        E('span', {}, c.earfcn != null ? String(c.earfcn) : '?'),
-                        c.pci  != null ? E('span', { 'style': 'color:var(--muted);font-size:.85em' }, 'PCI') : null,
-                        c.pci  != null ? E('span', {}, String(c.pci)) : null,
-                        c.rsrp != null
-                            ? E('span', { 'style': 'color:' + qualityColor(c.rsrp) }, c.rsrp + ' dBm')
-                            : null,
-                    ].filter(Boolean));
-                }))
-                : E('span', { 'style': 'color:var(--muted)' }, '—')
+                ? E('div', { 'id': 'ca-body' }, d.ca.map(buildCaRow))
+                : E('div', { 'id': 'ca-body', 'style': 'color:var(--muted)' }, '—')
         ]);
 
         // Card 5 — Per-antenna RSRP (live)
