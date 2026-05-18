@@ -2,6 +2,9 @@
   "admin/network/rm520n": {
     "title": "5G Modem (RM520N)",
     "order": 70,
+    "action": {
+      "type": "firstchild"
+    },
     "depends": {
       "acl": [ "luci-app-rm520n" ]
     }
