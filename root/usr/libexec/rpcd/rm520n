@@ -683,6 +683,9 @@ _method_set_config() {
 }
 
 # ── JSON-RPC dispatcher ────────────────────────────────────────────────────────
+# stdin is a pipe — jsonfilter consumes it on first read; read once and re-pipe.
+_RPC_BODY="$(cat)"
+_jf() { printf '%s' "$_RPC_BODY" | jsonfilter -e "$1" 2>/dev/null; }
 
 case "$1" in
     list)
@@ -696,18 +699,18 @@ case "$1" in
             signal)        _method_signal ;;
             cell)          _method_cell ;;
             bands)         _method_bands ;;
-            set_bands)     _method_set_bands "$(jsonfilter -e '@.lte_band' 2>/dev/null)" "$(jsonfilter -e '@.nr_band' 2>/dev/null)" ;;
+            set_bands)     _method_set_bands "$(_jf '@.lte_band')" "$(_jf '@.nr_band')" ;;
             reset_bands)   _method_reset_bands ;;
             reconnect)     _method_reconnect ;;
-            set_mode)      _method_set_mode "$(jsonfilter -e '@.mode' 2>/dev/null)" ;;
+            set_mode)      _method_set_mode "$(_jf '@.mode')" ;;
             reboot_modem)  _method_reboot_modem ;;
-            set_apn)       _method_set_apn "$(jsonfilter -e '@.apn' 2>/dev/null)" ;;
+            set_apn)       _method_set_apn "$(_jf '@.apn')" ;;
             get_config)    _method_get_config ;;
             set_config)    _method_set_config \
-                               "$(jsonfilter -e '@.enabled'        2>/dev/null)" \
-                               "$(jsonfilter -e '@.ping_host'      2>/dev/null)" \
-                               "$(jsonfilter -e '@.fail_threshold' 2>/dev/null)" \
-                               "$(jsonfilter -e '@.action'         2>/dev/null)" ;;
+                               "$(_jf '@.enabled')" \
+                               "$(_jf '@.ping_host')" \
+                               "$(_jf '@.fail_threshold')" \
+                               "$(_jf '@.action')" ;;
             *)             printf '{"error":"unknown method"}' ;;
         esac
         ;;

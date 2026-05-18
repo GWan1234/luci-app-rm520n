@@ -136,15 +136,28 @@ return view.extend({
                         callSetConfig(enabled, host, threshold, action).then(function(r) {
                             if (r && r.error) {
                                 ui.addNotification(null, E('p', r.error), 'error');
-                            } else {
-                                ui.addNotification(null, E('p', _('Watchdog settings saved.')), 'info');
+                                return;
                             }
+                            return callGetConfig().then(function(fresh) {
+                                var w = (fresh && fresh.watchdog) || {};
+                                var chk = document.getElementById('wd-enabled');
+                                if (chk) chk.checked = String(w.enabled) === '1';
+                                var h = document.getElementById('wd-host');
+                                if (h) h.value = w.ping_host || '8.8.8.8';
+                                var thr = document.getElementById('wd-threshold');
+                                if (thr) thr.value = String(w.fail_threshold || 3);
+                                var act = document.getElementById('wd-action');
+                                if (act) act.value = w.action || 'reconnect';
+                                ui.addNotification(null,
+                                    E('p', _('Saved — enabled: ') + (String(w.enabled) === '1' ? _('yes') : _('no'))
+                                        + ', host: ' + (w.ping_host || '8.8.8.8')
+                                        + ', threshold: ' + (w.fail_threshold || 3)
+                                        + ', action: ' + (w.action || 'reconnect')),
+                                    'info');
+                            });
                         });
                     }
                 }, _('Save')),
-                E('button', { 'class': 'rm-btn rm-btn-default',
-                    'click': function() { location.reload(); }
-                }, _('Reload')),
             ]),
         ]);
 
