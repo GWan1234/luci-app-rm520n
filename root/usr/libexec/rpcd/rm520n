@@ -503,6 +503,8 @@ _method_refresh() {
     printf '"rsrq":%s,'       "$(_json_num "$rsrq")"
     printf '"rrc_state":%s,'  "$(_json_str "$qeng_rrc")"
     printf '"rat":%s,'        "$(_json_str "${qeng_rat:-$qnwinfo_rat}")"
+    printf '"mcc":%s,'        "$(_json_str "${qeng_mcc:-$qnwinfo_mcc}")"
+    printf '"mnc":%s,'        "$(_json_str "${qeng_mnc:-$qnwinfo_mnc}")"
     printf '"cell_id":%s,'    "$(_json_str "$qeng_cell_id")"
     printf '"pci":%s,'        "$(_json_num "${qeng_pci:-$pcc_pci}")"
     printf '"earfcn":%s,'     "$(_json_num "${qeng_earfcn:-$qnwinfo_earfcn}")"

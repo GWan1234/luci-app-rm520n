@@ -176,6 +176,28 @@ function buildCaRow(c) {
     ].filter(Boolean));
 }
 
+function buildCellIdBlock(d) {
+    var ciHex  = d.cell_id || null;
+    var ciDec  = ciHex ? parseInt(ciHex, 16) : null;
+    var enbId  = ciDec != null ? (ciDec >> 8)   : null;
+    var sector = ciDec != null ? (ciDec & 0xFF) : null;
+    var cmUrl  = cellmapperUrl(d.mcc, d.mnc, d.cell_id, d.rat);
+    return ciHex
+        ? E('div', { 'class': 'rm-cell-id-block' }, [
+            E('div', {}, [
+                E('span', { 'class': 'rm-cell-id-hex' }, ciHex),
+                E('span', { 'class': 'rm-cell-id-dec' }, '(' + ciDec + ')')
+            ]),
+            E('div', { 'class': 'rm-cell-id-meta' }, [
+                'eNB ' + enbId + ' · Sector ' + sector,
+                cmUrl ? E('a', {
+                    'class': 'rm-cell-id-link', 'href': cmUrl, 'target': '_blank'
+                }, '↗ CellMapper') : null
+            ].filter(Boolean))
+          ])
+        : null;
+}
+
 function signalQualityBadge(rsrp, sinr) {
     var r = parseInt(rsrp), s = parseInt(sinr);
     if (isNaN(r)) return E('span', {}, '');
@@ -282,7 +304,7 @@ function updateSignal(d) {
     setEl('cell-band',   d.band    != null ? 'B' + d.band     : null);
     setEl('cell-earfcn', d.earfcn  != null ? String(d.earfcn) : null);
     setEl('cell-pci',    d.pci     != null ? String(d.pci)    : null);
-    if (d.cell_id) setEl('cell-id', d.cell_id);
+    if (d.cell_id !== undefined) setEl('cell-id-wrap', buildCellIdBlock(d));
 
     ['rx0', 'rx1', 'rx2', 'rx3'].forEach(function(rx) {
         var el = document.getElementById('ant-' + rx);
@@ -365,27 +387,6 @@ return view.extend({
         ]);
 
         // Card 3 — Cell info (live)
-        var ciHex  = d.cell_id || null;
-        var ciDec  = ciHex ? parseInt(ciHex, 16) : null;
-        var enbId  = ciDec != null ? (ciDec >> 8)   : null;
-        var sector = ciDec != null ? (ciDec & 0xFF) : null;
-        var cmUrl  = cellmapperUrl(d.mcc, d.mnc, d.cell_id, d.rat);
-
-        var cellIdContent = ciHex
-            ? E('div', { 'class': 'rm-cell-id-block' }, [
-                E('div', {}, [
-                    E('span', { 'class': 'rm-cell-id-hex', 'id': 'cell-id' }, ciHex),
-                    E('span', { 'class': 'rm-cell-id-dec' }, '(' + ciDec + ')')
-                ]),
-                E('div', { 'class': 'rm-cell-id-meta' }, [
-                    'eNB ' + enbId + ' · Sector ' + sector,
-                    cmUrl ? E('a', {
-                        'class': 'rm-cell-id-link', 'href': cmUrl, 'target': '_blank'
-                    }, '↗ CellMapper') : null
-                ].filter(Boolean))
-              ])
-            : E('span', { 'id': 'cell-id' }, '—');
-
         var cellCard = E('div', { 'class': 'rm-card' }, [
             E('h3', {}, _('Cell Info')),
             E('table', { 'class': 'rm-table' }, [
@@ -394,7 +395,7 @@ return view.extend({
                 row(_('Duplex'),    d.duplex || '—'),
                 row(_('EARFCN'),    E('span', { 'id': 'cell-earfcn' }, d.earfcn != null ? String(d.earfcn) : '—')),
                 row(_('PCI'),       E('span', { 'id': 'cell-pci'    }, d.pci    != null ? String(d.pci)    : '—')),
-                row(_('Cell ID'),   cellIdContent),
+                row(_('Cell ID'),   E('span', { 'id': 'cell-id-wrap' }, [ buildCellIdBlock(d) || '—' ])),
                 row(_('TAC'), d.tac || '—'),
             ])
         ]);
