@@ -2,9 +2,38 @@
   "admin/network/rm520n": {
     "title": "5G Modem (RM520N)",
     "order": 70,
+    "depends": {
+      "acl": [ "luci-app-rm520n" ]
+    }
+  },
+  "admin/network/rm520n/overview": {
+    "title": "Overview",
+    "order": 10,
     "action": {
       "type": "view",
       "path": "rm520n/overview"
+    },
+    "depends": {
+      "acl": [ "luci-app-rm520n" ]
+    }
+  },
+  "admin/network/rm520n/tools": {
+    "title": "Tools",
+    "order": 20,
+    "action": {
+      "type": "view",
+      "path": "rm520n/tools"
+    },
+    "depends": {
+      "acl": [ "luci-app-rm520n" ]
+    }
+  },
+  "admin/network/rm520n/settings": {
+    "title": "Settings",
+    "order": 30,
+    "action": {
+      "type": "view",
+      "path": "rm520n/settings"
     },
     "depends": {
       "acl": [ "luci-app-rm520n" ]

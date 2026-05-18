@@ -35,13 +35,17 @@ _download() {
         "${dir}/root/usr/libexec/rpcd" \
         "${dir}/root/usr/share/luci/menu.d" \
         "${dir}/root/usr/share/rpcd/acl.d" \
+        "${dir}/root/usr/sbin" \
         "${dir}/htdocs/luci-static/resources/view/rm520n"
 
     for f in \
         root/usr/libexec/rpcd/rm520n \
         root/usr/share/luci/menu.d/rm520n.json \
         root/usr/share/rpcd/acl.d/rm520n.json \
-        htdocs/luci-static/resources/view/rm520n/overview.js
+        root/usr/sbin/rm520n-watchdog \
+        htdocs/luci-static/resources/view/rm520n/overview.js \
+        htdocs/luci-static/resources/view/rm520n/tools.js \
+        htdocs/luci-static/resources/view/rm520n/settings.js
     do
         wget -qO "${dir}/${f}" "${base}/${f}" || { printf 'ERROR: failed to download %s\n' "$f" >&2; exit 1; }
         printf '  Downloaded: %s\n' "$f"
@@ -70,9 +74,23 @@ _install_files() {
     _cp 644 "${src}/root/usr/share/rpcd/acl.d/rm520n.json" \
         /usr/share/rpcd/acl.d/rm520n.json
 
-    printf '[INFO] Installing LuCI view...\n'
+    printf '[INFO] Installing LuCI views...\n'
     _cp 644 "${src}/htdocs/luci-static/resources/view/rm520n/overview.js" \
         /www/luci-static/resources/view/rm520n/overview.js
+    _cp 644 "${src}/htdocs/luci-static/resources/view/rm520n/tools.js" \
+        /www/luci-static/resources/view/rm520n/tools.js
+    _cp 644 "${src}/htdocs/luci-static/resources/view/rm520n/settings.js" \
+        /www/luci-static/resources/view/rm520n/settings.js
+
+    printf '[INFO] Installing watchdog script...\n'
+    _cp 755 "${src}/root/usr/sbin/rm520n-watchdog" \
+        /usr/sbin/rm520n-watchdog
+
+    if [ ! -f /etc/config/rm520n ]; then
+        printf '[INFO] Creating default UCI config...\n'
+        printf 'config watchdog '"'"'watchdog'"'"'\n\toption enabled '"'"'0'"'"'\n\toption ping_host '"'"'8.8.8.8'"'"'\n\toption fail_threshold '"'"'3'"'"'\n\toption action '"'"'reconnect'"'"'\n' \
+            > /etc/config/rm520n
+    fi
 }
 
 _ensure_deps() {

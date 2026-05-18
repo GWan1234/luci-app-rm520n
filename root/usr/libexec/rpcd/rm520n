@@ -643,11 +643,50 @@ _method_set_mode() {
     printf '{"result":"ok"}'
 }
 
+_method_get_config() {
+    local wd_enabled wd_host wd_threshold wd_action fail_count
+    wd_enabled="$( uci -q get rm520n.watchdog.enabled       2>/dev/null)"; wd_enabled="${wd_enabled:-0}"
+    wd_host="$(    uci -q get rm520n.watchdog.ping_host      2>/dev/null)"; wd_host="${wd_host:-8.8.8.8}"
+    wd_threshold="$(uci -q get rm520n.watchdog.fail_threshold 2>/dev/null)"; wd_threshold="${wd_threshold:-3}"
+    wd_action="$(  uci -q get rm520n.watchdog.action         2>/dev/null)"; wd_action="${wd_action:-reconnect}"
+    fail_count="$( cat /tmp/rm520n_watchdog_fails 2>/dev/null || printf '0')"
+    printf '{"watchdog":{"enabled":%s,"ping_host":%s,"fail_threshold":%s,"action":%s,"fail_count":%s}}' \
+        "$wd_enabled" "$(_json_str "$wd_host")" "$wd_threshold" \
+        "$(_json_str "$wd_action")" "$fail_count"
+}
+
+_method_set_config() {
+    local enabled="$1" host="$2" threshold="$3" action="$4"
+    [ -z "$enabled"   ] && enabled=0
+    [ -z "$host"      ] && host="8.8.8.8"
+    [ -z "$threshold" ] && threshold=3
+    [ -z "$action"    ] && action="reconnect"
+    touch /etc/config/rm520n 2>/dev/null || true
+    uci -q set rm520n.watchdog=watchdog
+    uci -q set rm520n.watchdog.enabled="$enabled"
+    uci -q set rm520n.watchdog.ping_host="$host"
+    uci -q set rm520n.watchdog.fail_threshold="$threshold"
+    uci -q set rm520n.watchdog.action="$action"
+    uci commit rm520n
+    local CRON_FILE="/etc/crontabs/root"
+    mkdir -p /etc/crontabs
+    if [ "$enabled" = "1" ]; then
+        grep -q 'rm520n-watchdog' "$CRON_FILE" 2>/dev/null || {
+            printf '* * * * * /usr/sbin/rm520n-watchdog\n' >> "$CRON_FILE"
+            /etc/init.d/cron reload 2>/dev/null || true
+        }
+    else
+        sed -i '/rm520n-watchdog/d' "$CRON_FILE" 2>/dev/null || true
+        /etc/init.d/cron reload 2>/dev/null || true
+    fi
+    printf '{"result":"ok"}'
+}
+
 # ── JSON-RPC dispatcher ────────────────────────────────────────────────────────
 
 case "$1" in
     list)
-        printf '{"full_status":{},"refresh":{},"status":{},"signal":{},"cell":{},"bands":{},"set_bands":{"lte_band":"","nr_band":""},"reset_bands":{},"reconnect":{},"set_mode":{"mode":""},"reboot_modem":{},"set_apn":{"apn":""}}'
+        printf '{"full_status":{},"refresh":{},"status":{},"signal":{},"cell":{},"bands":{},"set_bands":{"lte_band":"","nr_band":""},"reset_bands":{},"reconnect":{},"set_mode":{"mode":""},"reboot_modem":{},"set_apn":{"apn":""},"get_config":{},"set_config":{"enabled":"","ping_host":"","fail_threshold":"","action":""}}'
         ;;
     call)
         case "$2" in
@@ -663,6 +702,12 @@ case "$1" in
             set_mode)      _method_set_mode "$(jsonfilter -e '@.mode' 2>/dev/null)" ;;
             reboot_modem)  _method_reboot_modem ;;
             set_apn)       _method_set_apn "$(jsonfilter -e '@.apn' 2>/dev/null)" ;;
+            get_config)    _method_get_config ;;
+            set_config)    _method_set_config \
+                               "$(jsonfilter -e '@.enabled'        2>/dev/null)" \
+                               "$(jsonfilter -e '@.ping_host'      2>/dev/null)" \
+                               "$(jsonfilter -e '@.fail_threshold' 2>/dev/null)" \
+                               "$(jsonfilter -e '@.action'         2>/dev/null)" ;;
             *)             printf '{"error":"unknown method"}' ;;
         esac
         ;;

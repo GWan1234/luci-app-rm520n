@@ -4,12 +4,12 @@
     "read": {
       "ubus": {
         "session": [ "access", "login" ],
-        "rm520n": [ "full_status", "refresh", "status", "signal", "cell", "bands" ]
+        "rm520n": [ "full_status", "refresh", "status", "signal", "cell", "bands", "get_config" ]
       }
     },
     "write": {
       "ubus": {
-        "rm520n": [ "set_bands", "reboot_modem", "set_apn", "reset_bands", "reconnect", "set_mode" ]
+        "rm520n": [ "set_bands", "reboot_modem", "set_apn", "reset_bands", "reconnect", "set_mode", "set_config" ]
       }
     }
   }

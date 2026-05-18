@@ -1,0 +1,34 @@
+#!/bin/sh
+# Connectivity watchdog for rm520n — triggered by cron every minute.
+# On N consecutive ping failures, runs the configured recovery action via ubus.
+
+[ -f /etc/config/rm520n ] || exit 0
+
+enabled="$(uci -q get rm520n.watchdog.enabled 2>/dev/null)"
+[ "$enabled" = "1" ] || exit 0
+
+host="$(      uci -q get rm520n.watchdog.ping_host      2>/dev/null)"; host="${host:-8.8.8.8}"
+threshold="$( uci -q get rm520n.watchdog.fail_threshold 2>/dev/null)"; threshold="${threshold:-3}"
+action="$(    uci -q get rm520n.watchdog.action         2>/dev/null)"; action="${action:-reconnect}"
+
+FAIL_FILE="/tmp/rm520n_watchdog_fails"
+
+if ping -c 2 -W 5 "$host" > /dev/null 2>&1; then
+    rm -f "$FAIL_FILE"
+    exit 0
+fi
+
+fails="$(cat "$FAIL_FILE" 2>/dev/null)"
+fails=$(( ${fails:-0} + 1 ))
+printf '%d' "$fails" > "$FAIL_FILE"
+logger -t rm520n-watchdog "ping $host failed ($fails/$threshold)"
+
+[ "$fails" -lt "$threshold" ] && exit 0
+
+rm -f "$FAIL_FILE"
+logger -t rm520n-watchdog "threshold reached — triggering: $action"
+
+case "$action" in
+    reconnect)    ubus call rm520n reconnect    ;;
+    reboot_modem) ubus call rm520n reboot_modem ;;
+esac
