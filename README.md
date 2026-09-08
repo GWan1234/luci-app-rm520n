@@ -33,6 +33,7 @@ When the RM520NGL modem operates in **PCIe/GbE mode** (via the Waveshare carrier
 - **APN configuration** — change APN without touching UCI
 - **Reconnect** — soft reconnect (CFUN=4 → CFUN=1, ~5 s downtime) with confirmation dialog
 - **Modem reboot** — full restart (CFUN=1,1, ~20 s) with confirmation dialog
+- **Connectivity watchdog** — procd daemon pings a configurable host; on repeated failure runs reconnect, modem reboot, a 3-stage cascade (reconnect → reboot modem → reboot router), or a router reboot outright. Settings shows live status, time since last successful check, and a scrollable event history (with a signal snapshot logged at each action) so failures can be correlated with signal quality
 
 ---
 
@@ -93,6 +94,9 @@ LuCI browser (JavaScript view)
 |---|---|
 | `root/usr/libexec/rpcd/rm520n` | Shell script backend — handles JSON-RPC calls, queries modem via AT |
 | `htdocs/.../view/rm520n/overview.js` | LuCI JavaScript view — cards, signal bars, controls, auto-refresh |
+| `htdocs/.../view/rm520n/settings.js` | LuCI JavaScript view — watchdog configuration, status, event history |
+| `root/usr/sbin/rm520n-watchdog` | Connectivity watchdog daemon (procd-managed) |
+| `root/etc/init.d/rm520n-watchdog` | procd init script for the watchdog daemon |
 | `root/usr/share/luci/menu.d/rm520n.json` | Registers the page under Network menu |
 | `root/usr/share/rpcd/acl.d/rm520n.json` | rpcd access control list |
 
@@ -111,8 +115,30 @@ LuCI browser (JavaScript view)
 | `set_apn` | write | Set PDP context APN (`AT+CGDCONT`) |
 | `reconnect` | write | Soft reconnect: CFUN=4, sleep 3 s, CFUN=1 |
 | `reboot_modem` | write | Full modem restart (`AT+CFUN=1,1`) |
+| `reset_counters` | write | Reset modem data counters (`AT+QGDCNT=0,0`) |
+| `get_config` | read | Watchdog config, status, last successful check, event history |
+| `set_config` | write | Update watchdog config (host, interval, threshold, action) and (re)start the daemon |
 
 ---
+
+## Connectivity Watchdog
+
+A procd-managed daemon (`root/usr/sbin/rm520n-watchdog`) pings a configurable host at a fixed
+interval and counts consecutive failures. Once the failure threshold is reached it runs one of:
+
+| Action | Effect |
+|---|---|
+| `reconnect` | Soft reconnect (CFUN=4 → 1) |
+| `reboot_modem` | Full modem restart (`AT+CFUN=1,1`) |
+| `cascade` | Escalates one stage per threshold hit: reconnect → reboot modem → reboot router |
+| `reboot_router` | Full OpenWrt reboot |
+
+Detection time is `interval × threshold` (e.g. 10 s × 3 = ~30 s). Every triggered action is logged
+via syslog with a one-line signal snapshot (technology, RSRP, SINR, RRC state) captured at that
+moment, so repeated events can be correlated with signal quality rather than just timestamps.
+
+Configure it under **Network → 5G Modem (RM520N) → Settings**, where you can also see time since
+the last successful check and a scrollable history of recent watchdog events.
 
 ## Signal Quality Reference
 
