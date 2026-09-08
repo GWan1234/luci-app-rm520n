@@ -1,34 +1,70 @@
 #!/bin/sh
-# Connectivity watchdog for rm520n — triggered by cron every minute.
-# On N consecutive ping failures, runs the configured recovery action via ubus.
-
-[ -f /etc/config/rm520n ] || exit 0
-
-enabled="$(uci -q get rm520n.watchdog.enabled 2>/dev/null)"
-[ "$enabled" = "1" ] || exit 0
-
-host="$(      uci -q get rm520n.watchdog.ping_host      2>/dev/null)"; host="${host:-8.8.8.8}"
-threshold="$( uci -q get rm520n.watchdog.fail_threshold 2>/dev/null)"; threshold="${threshold:-3}"
-action="$(    uci -q get rm520n.watchdog.action         2>/dev/null)"; action="${action:-reconnect}"
+# Connectivity watchdog for rm520n — runs as a procd-managed daemon.
+# Polls the configured host every <interval> seconds. On <threshold> consecutive
+# failures triggers the configured action. Cascade mode: reconnect first,
+# then escalates to reboot_modem if reconnect did not restore connectivity.
 
 FAIL_FILE="/tmp/rm520n_watchdog_fails"
+RECONNECT_FLAG="/tmp/.rm520n_reconnected"
 
-if ping -c 2 -W 5 "$host" > /dev/null 2>&1; then
+_cfg() { uci -q get "rm520n.watchdog.$1" 2>/dev/null; }
+
+_trigger_reconnect() {
+    logger -t rm520n-watchdog "threshold reached — triggering: reconnect"
+    touch "$RECONNECT_FLAG"
     rm -f "$FAIL_FILE"
-    exit 0
-fi
+    ubus call rm520n reconnect
+    sleep 30
+}
 
-fails="$(cat "$FAIL_FILE" 2>/dev/null)"
-fails=$(( ${fails:-0} + 1 ))
-printf '%d' "$fails" > "$FAIL_FILE"
-logger -t rm520n-watchdog "ping $host failed ($fails/$threshold)"
+_trigger_reboot() {
+    logger -t rm520n-watchdog "threshold reached — triggering: reboot_modem"
+    rm -f "$RECONNECT_FLAG" "$FAIL_FILE"
+    ubus call rm520n reboot_modem
+    sleep 60
+}
 
-[ "$fails" -lt "$threshold" ] && exit 0
+while true; do
+    [ -f /etc/config/rm520n ] || { sleep 30; continue; }
 
-rm -f "$FAIL_FILE"
-logger -t rm520n-watchdog "threshold reached — triggering: $action"
+    enabled="$(_cfg enabled)"; [ "$enabled" = "1" ] || { sleep 30; continue; }
 
-case "$action" in
-    reconnect)    ubus call rm520n reconnect    ;;
-    reboot_modem) ubus call rm520n reboot_modem ;;
-esac
+    host="$(_cfg ping_host)";        host="${host:-8.8.8.8}"
+    threshold="$(_cfg fail_threshold)"; threshold="${threshold:-3}"
+    action="$(_cfg action)";         action="${action:-reboot_modem}"
+    interval="$(_cfg interval)";     interval="${interval:-10}"
+
+    if ping -c 2 -W 3 "$host" > /dev/null 2>&1; then
+        rm -f "$FAIL_FILE" "$RECONNECT_FLAG"
+        sleep "$interval"
+        continue
+    fi
+
+    fails="$(cat "$FAIL_FILE" 2>/dev/null)"
+    fails=$(( ${fails:-0} + 1 ))
+    printf '%d' "$fails" > "$FAIL_FILE"
+    logger -t rm520n-watchdog "ping $host failed ($fails/$threshold)"
+
+    if [ "$fails" -lt "$threshold" ]; then
+        sleep "$interval"
+        continue
+    fi
+
+    case "$action" in
+        cascade)
+            if [ -f "$RECONNECT_FLAG" ]; then
+                logger -t rm520n-watchdog "reconnect was ineffective — escalating"
+                rm -f "$RECONNECT_FLAG"
+                _trigger_reboot
+            else
+                _trigger_reconnect
+            fi
+            ;;
+        reboot_modem)
+            _trigger_reboot
+            ;;
+        reconnect)
+            _trigger_reconnect
+            ;;
+    esac
+done

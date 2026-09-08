@@ -36,6 +36,7 @@ _download() {
         "${dir}/root/usr/share/luci/menu.d" \
         "${dir}/root/usr/share/rpcd/acl.d" \
         "${dir}/root/usr/sbin" \
+        "${dir}/root/etc/init.d" \
         "${dir}/htdocs/luci-static/resources/view/rm520n"
 
     for f in \
@@ -43,6 +44,7 @@ _download() {
         root/usr/share/luci/menu.d/rm520n.json \
         root/usr/share/rpcd/acl.d/rm520n.json \
         root/usr/sbin/rm520n-watchdog \
+        root/etc/init.d/rm520n-watchdog \
         htdocs/luci-static/resources/view/rm520n/overview.js \
         htdocs/luci-static/resources/view/rm520n/tools.js \
         htdocs/luci-static/resources/view/rm520n/settings.js
@@ -82,15 +84,35 @@ _install_files() {
     _cp 644 "${src}/htdocs/luci-static/resources/view/rm520n/settings.js" \
         /www/luci-static/resources/view/rm520n/settings.js
 
-    printf '[INFO] Installing watchdog script...\n'
+    printf '[INFO] Installing watchdog daemon and init script...\n'
     _cp 755 "${src}/root/usr/sbin/rm520n-watchdog" \
         /usr/sbin/rm520n-watchdog
+    _cp 755 "${src}/root/etc/init.d/rm520n-watchdog" \
+        /etc/init.d/rm520n-watchdog
 
     if [ ! -f /etc/config/rm520n ]; then
         printf '[INFO] Creating default UCI config...\n'
-        printf 'config watchdog '"'"'watchdog'"'"'\n\toption enabled '"'"'0'"'"'\n\toption ping_host '"'"'8.8.8.8'"'"'\n\toption fail_threshold '"'"'3'"'"'\n\toption action '"'"'reconnect'"'"'\n' \
-            > /etc/config/rm520n
+        cat > /etc/config/rm520n <<'EOF'
+config watchdog 'watchdog'
+	option enabled '0'
+	option ping_host '8.8.8.8'
+	option fail_threshold '3'
+	option action 'reboot_modem'
+	option interval '10'
+EOF
+    else
+        # Migrate: add interval if missing (upgrade from older install)
+        uci -q get rm520n.watchdog.interval >/dev/null 2>&1 || \
+            uci -q set rm520n.watchdog.interval='10' && uci commit rm520n 2>/dev/null || true
     fi
+
+    # Remove legacy cron entry if present
+    sed -i '/rm520n-watchdog/d' /etc/crontabs/root 2>/dev/null || true
+    /etc/init.d/cron reload 2>/dev/null || true
+
+    # Enable procd service for boot persistence (does not start it —
+    # user enables via LuCI settings)
+    /etc/init.d/rm520n-watchdog enable 2>/dev/null || true
 }
 
 _ensure_deps() {

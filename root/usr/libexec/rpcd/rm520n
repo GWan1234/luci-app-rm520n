@@ -675,40 +675,44 @@ _method_set_mode() {
 }
 
 _method_get_config() {
-    local wd_enabled wd_host wd_threshold wd_action fail_count
-    wd_enabled="$( uci -q get rm520n.watchdog.enabled       2>/dev/null)"; wd_enabled="${wd_enabled:-0}"
-    wd_host="$(    uci -q get rm520n.watchdog.ping_host      2>/dev/null)"; wd_host="${wd_host:-8.8.8.8}"
-    wd_threshold="$(uci -q get rm520n.watchdog.fail_threshold 2>/dev/null)"; wd_threshold="${wd_threshold:-3}"
-    wd_action="$(  uci -q get rm520n.watchdog.action         2>/dev/null)"; wd_action="${wd_action:-reconnect}"
-    fail_count="$( cat /tmp/rm520n_watchdog_fails 2>/dev/null || printf '0')"
-    printf '{"watchdog":{"enabled":%s,"ping_host":%s,"fail_threshold":%s,"action":%s,"fail_count":%s}}' \
+    local wd_enabled wd_host wd_threshold wd_action wd_interval fail_count
+    wd_enabled="$(  uci -q get rm520n.watchdog.enabled        2>/dev/null)"; wd_enabled="${wd_enabled:-0}"
+    wd_host="$(     uci -q get rm520n.watchdog.ping_host       2>/dev/null)"; wd_host="${wd_host:-8.8.8.8}"
+    wd_threshold="$(uci -q get rm520n.watchdog.fail_threshold  2>/dev/null)"; wd_threshold="${wd_threshold:-3}"
+    wd_action="$(   uci -q get rm520n.watchdog.action          2>/dev/null)"; wd_action="${wd_action:-reboot_modem}"
+    wd_interval="$( uci -q get rm520n.watchdog.interval        2>/dev/null)"; wd_interval="${wd_interval:-10}"
+    fail_count="$(  cat /tmp/rm520n_watchdog_fails 2>/dev/null || printf '0')"
+    printf '{"watchdog":{"enabled":%s,"ping_host":%s,"fail_threshold":%s,"action":%s,"interval":%s,"fail_count":%s}}' \
         "$wd_enabled" "$(_json_str "$wd_host")" "$wd_threshold" \
-        "$(_json_str "$wd_action")" "$fail_count"
+        "$(_json_str "$wd_action")" "$wd_interval" "$fail_count"
 }
 
 _method_set_config() {
-    local enabled="$1" host="$2" threshold="$3" action="$4"
+    local enabled="$1" host="$2" threshold="$3" action="$4" interval="$5"
     [ -z "$enabled"   ] && enabled=0
     [ -z "$host"      ] && host="8.8.8.8"
     [ -z "$threshold" ] && threshold=3
-    [ -z "$action"    ] && action="reconnect"
+    [ -z "$action"    ] && action="reboot_modem"
+    [ -z "$interval"  ] && interval=10
     touch /etc/config/rm520n 2>/dev/null || true
     uci -q set rm520n.watchdog=watchdog
     uci -q set rm520n.watchdog.enabled="$enabled"
     uci -q set rm520n.watchdog.ping_host="$host"
     uci -q set rm520n.watchdog.fail_threshold="$threshold"
     uci -q set rm520n.watchdog.action="$action"
+    uci -q set rm520n.watchdog.interval="$interval"
     uci commit rm520n
-    local CRON_FILE="/etc/crontabs/root"
-    mkdir -p /etc/crontabs
+    # Remove legacy cron entry if present
+    sed -i '/rm520n-watchdog/d' /etc/crontabs/root 2>/dev/null || true
+    /etc/init.d/cron reload 2>/dev/null || true
+    # Manage procd service — service_triggers() in the init script reloads on
+    # uci commit, but call explicitly here for the enabled=0 stop case.
     if [ "$enabled" = "1" ]; then
-        grep -q 'rm520n-watchdog' "$CRON_FILE" 2>/dev/null || {
-            printf '* * * * * /usr/sbin/rm520n-watchdog\n' >> "$CRON_FILE"
-            /etc/init.d/cron reload 2>/dev/null || true
-        }
+        /etc/init.d/rm520n-watchdog enable  2>/dev/null || true
+        /etc/init.d/rm520n-watchdog restart 2>/dev/null || true
     else
-        sed -i '/rm520n-watchdog/d' "$CRON_FILE" 2>/dev/null || true
-        /etc/init.d/cron reload 2>/dev/null || true
+        /etc/init.d/rm520n-watchdog stop    2>/dev/null || true
+        /etc/init.d/rm520n-watchdog disable 2>/dev/null || true
     fi
     printf '{"result":"ok"}'
 }
@@ -720,7 +724,7 @@ _jf() { printf '%s' "$_RPC_BODY" | jsonfilter -e "$1" 2>/dev/null; }
 
 case "$1" in
     list)
-        printf '{"full_status":{},"refresh":{},"status":{},"signal":{},"cell":{},"bands":{},"set_bands":{"lte_band":"","nr_band":""},"reset_bands":{},"reset_counters":{},"reconnect":{},"set_mode":{"mode":""},"reboot_modem":{},"set_apn":{"apn":""},"get_config":{},"set_config":{"enabled":"","ping_host":"","fail_threshold":"","action":""}}'
+        printf '{"full_status":{},"refresh":{},"status":{},"signal":{},"cell":{},"bands":{},"set_bands":{"lte_band":"","nr_band":""},"reset_bands":{},"reset_counters":{},"reconnect":{},"set_mode":{"mode":""},"reboot_modem":{},"set_apn":{"apn":""},"get_config":{},"set_config":{"enabled":"","ping_host":"","fail_threshold":"","action":"","interval":""}}'
         ;;
     call)
         case "$2" in
@@ -742,7 +746,8 @@ case "$1" in
                                "$(_jf '@.enabled')" \
                                "$(_jf '@.ping_host')" \
                                "$(_jf '@.fail_threshold')" \
-                               "$(_jf '@.action')" ;;
+                               "$(_jf '@.action')" \
+                               "$(_jf '@.interval')" ;;
             *)             printf '{"error":"unknown method"}' ;;
         esac
         ;;
