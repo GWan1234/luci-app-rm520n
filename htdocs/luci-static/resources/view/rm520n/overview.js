@@ -282,7 +282,7 @@ function updateSignal(d) {
     setEl('cell-band',   d.band    != null ? 'B' + d.band     : null);
     setEl('cell-earfcn', d.earfcn  != null ? String(d.earfcn) : null);
     setEl('cell-pci',    d.pci     != null ? String(d.pci)    : null);
-    if (d.cell_id !== undefined) setEl('cell-id-wrap', buildCellIdBlock(d));
+    if (d.cell_id) setEl('cell-id-wrap', buildCellIdBlock(d));
 
     ['rx0', 'rx1', 'rx2', 'rx3'].forEach(function(rx) {
         var el = document.getElementById('ant-' + rx);
