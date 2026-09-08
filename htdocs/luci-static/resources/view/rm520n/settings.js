@@ -47,13 +47,42 @@ var CSS =
     + '.rm-status-ok{color:var(--green)}'
     + '.rm-status-warn{color:var(--amber)}'
     + '.rm-status-err{color:var(--red)}'
-    + '.rm-status-off{color:var(--muted)}';
+    + '.rm-status-off{color:var(--muted)}'
+    + '.rm-history{'
+    + 'max-height:180px;overflow-y:auto;background:var(--bg);border:1px solid var(--border);'
+    + 'border-radius:6px;padding:8px 10px;font-size:.78em;line-height:1.5}'
+    + '.rm-history-empty{color:var(--muted)}'
+    + '.rm-history-line{white-space:pre-wrap;word-break:break-all;color:var(--text)}';
 
 var ACTION_LABELS = {
-    'reconnect':    'Reconnect only (CFUN=4→1, ~5 s)',
-    'reboot_modem': 'Reboot modem (AT+CFUN=1,1, ~25 s)',
-    'cascade':      'Cascade: reconnect → reboot if still failing'
+    'reconnect':     'Reconnect only (CFUN=4→1, ~5 s)',
+    'reboot_modem':  'Reboot modem (AT+CFUN=1,1, ~25 s)',
+    'cascade':       'Cascade: reconnect → reboot modem → reboot router',
+    'reboot_router': 'Reboot router (full OpenWrt restart, ~60 s)'
 };
+
+function fmtRelativeTime(epochSec) {
+    var t = parseInt(epochSec);
+    if (!t) return _('never');
+    var d = Math.max(0, Math.floor(Date.now() / 1000) - t);
+    if (d < 60) return d + _('s ago');
+    if (d < 3600) return Math.floor(d / 60) + _('m ago');
+    if (d < 86400) return Math.floor(d / 3600) + _('h ago');
+    return Math.floor(d / 86400) + _('d ago');
+}
+
+function buildHistoryBlock(history) {
+    if (!history || !history.length) {
+        return E('div', { 'class': 'rm-history' }, [
+            E('div', { 'class': 'rm-history-empty' }, _('No events recorded yet.'))
+        ]);
+    }
+    return E('div', { 'class': 'rm-history' },
+        history.slice().reverse().map(function(line) {
+            return E('div', { 'class': 'rm-history-line' }, line);
+        })
+    );
+}
 
 function toggleLabel(enabled) {
     return E('label', { 'class': 'rm-toggle' }, [
@@ -147,17 +176,26 @@ return view.extend({
                     E('td', {}, _('Recovery action')),
                     E('td', {}, [
                         makeSelect('wd-action', [
-                            { v: 'reconnect',    l: ACTION_LABELS['reconnect'] },
-                            { v: 'reboot_modem', l: ACTION_LABELS['reboot_modem'] },
-                            { v: 'cascade',      l: ACTION_LABELS['cascade'] }
+                            { v: 'reconnect',     l: ACTION_LABELS['reconnect'] },
+                            { v: 'reboot_modem',  l: ACTION_LABELS['reboot_modem'] },
+                            { v: 'cascade',       l: ACTION_LABELS['cascade'] },
+                            { v: 'reboot_router', l: ACTION_LABELS['reboot_router'] }
                         ], curAction),
                         E('div', { 'class': 'rm-hint' },
-                            _('Cascade: try soft reconnect, then full reboot if still failing.'))
+                            _('Cascade escalates one step per threshold hit: reconnect, then reboot modem, then reboot the whole router.'))
                     ])
                 ]),
                 E('tr', {}, [
                     E('td', {}, _('Status')),
                     E('td', { 'id': 'wd-status' }, [ statusText(wd) ])
+                ]),
+                E('tr', {}, [
+                    E('td', {}, _('Last successful check')),
+                    E('td', { 'id': 'wd-last-ok' }, fmtRelativeTime(wd.last_ok))
+                ]),
+                E('tr', {}, [
+                    E('td', { 'style': 'vertical-align:top' }, _('Recent events')),
+                    E('td', { 'id': 'wd-history' }, [ buildHistoryBlock(wd.history) ])
                 ]),
             ]),
             E('div', { 'class': 'rm-controls' }, [
@@ -190,6 +228,13 @@ return view.extend({
                                     while (st.firstChild) st.removeChild(st.firstChild);
                                     st.appendChild(statusText(w));
                                 }
+                                var lo = document.getElementById('wd-last-ok');
+                                if (lo) lo.textContent = fmtRelativeTime(w.last_ok);
+                                var hi = document.getElementById('wd-history');
+                                if (hi) {
+                                    while (hi.firstChild) hi.removeChild(hi.firstChild);
+                                    hi.appendChild(buildHistoryBlock(w.history));
+                                }
                                 ui.addNotification(null,
                                     E('p', _('Saved — enabled: ') + (String(w.enabled) === '1' ? _('yes') : _('no'))
                                         + ', host: ' + (w.ping_host || '8.8.8.8')
@@ -201,6 +246,25 @@ return view.extend({
                         });
                     }
                 }, _('Save')),
+                E('button', { 'class': 'rm-btn rm-btn-default',
+                    'click': function() {
+                        callGetConfig().then(function(fresh) {
+                            var w = (fresh && fresh.watchdog) || {};
+                            var st = document.getElementById('wd-status');
+                            if (st) {
+                                while (st.firstChild) st.removeChild(st.firstChild);
+                                st.appendChild(statusText(w));
+                            }
+                            var lo = document.getElementById('wd-last-ok');
+                            if (lo) lo.textContent = fmtRelativeTime(w.last_ok);
+                            var hi = document.getElementById('wd-history');
+                            if (hi) {
+                                while (hi.firstChild) hi.removeChild(hi.firstChild);
+                                hi.appendChild(buildHistoryBlock(w.history));
+                            }
+                        });
+                    }
+                }, _('Refresh Status')),
             ]),
         ]);
 

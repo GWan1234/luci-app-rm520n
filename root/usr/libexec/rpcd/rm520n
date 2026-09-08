@@ -677,17 +677,39 @@ _method_set_mode() {
     printf '{"result":"ok"}'
 }
 
+# Reads recent rm520n-watchdog syslog lines, returns a JSON array of strings
+# (oldest first), or [] if logread has nothing yet.
+_build_watchdog_history_json() {
+    local tmpf="/tmp/_rm520n_wdhist_$$" _first=1 _line
+    logread 2>/dev/null | grep 'rm520n-watchdog' | tail -n 30 > "$tmpf"
+    if [ -s "$tmpf" ]; then
+        printf '['
+        while IFS= read -r _line; do
+            [ "$_first" -eq 0 ] && printf ','
+            printf '%s' "$(_json_str "$_line")"
+            _first=0
+        done < "$tmpf"
+        printf ']'
+    else
+        printf '[]'
+    fi
+    rm -f "$tmpf"
+}
+
 _method_get_config() {
-    local wd_enabled wd_host wd_threshold wd_action wd_interval fail_count
+    local wd_enabled wd_host wd_threshold wd_action wd_interval fail_count last_ok history_json
     wd_enabled="$(  uci -q get rm520n.watchdog.enabled        2>/dev/null)"; wd_enabled="${wd_enabled:-0}"
     wd_host="$(     uci -q get rm520n.watchdog.ping_host       2>/dev/null)"; wd_host="${wd_host:-8.8.8.8}"
     wd_threshold="$(uci -q get rm520n.watchdog.fail_threshold  2>/dev/null)"; wd_threshold="${wd_threshold:-3}"
     wd_action="$(   uci -q get rm520n.watchdog.action          2>/dev/null)"; wd_action="${wd_action:-reboot_modem}"
     wd_interval="$( uci -q get rm520n.watchdog.interval        2>/dev/null)"; wd_interval="${wd_interval:-10}"
     fail_count="$(  cat /tmp/rm520n_watchdog_fails 2>/dev/null || printf '0')"
-    printf '{"watchdog":{"enabled":%s,"ping_host":%s,"fail_threshold":%s,"action":%s,"interval":%s,"fail_count":%s}}' \
+    last_ok="$(     cat /tmp/rm520n_watchdog_last_ok 2>/dev/null)"
+    history_json="$(_build_watchdog_history_json)"
+    printf '{"watchdog":{"enabled":%s,"ping_host":%s,"fail_threshold":%s,"action":%s,"interval":%s,"fail_count":%s,"last_ok":%s,"history":%s}}' \
         "$wd_enabled" "$(_json_str "$wd_host")" "$wd_threshold" \
-        "$(_json_str "$wd_action")" "$wd_interval" "$fail_count"
+        "$(_json_str "$wd_action")" "$wd_interval" "$fail_count" \
+        "$(_json_num "$last_ok")" "$history_json"
 }
 
 _method_set_config() {
