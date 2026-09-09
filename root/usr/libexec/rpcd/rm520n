@@ -478,7 +478,7 @@ _method_refresh() {
     _find_at_port || { printf '{"error":"AT port not found"}'; return; }
     _at_lock      || { printf '{"error":"AT port busy"}';      return; }
 
-    local raw_qcsq raw_qeng raw_qrsrp raw_qnwinfo raw_qcainfo raw_qgdcnt raw_cbc qcsq_raw
+    local raw_qcsq raw_qeng raw_qrsrp raw_qnwinfo raw_qcainfo raw_qgdcnt raw_cbc raw_cereg qcsq_raw cereg_raw
     local tech rssi rsrp sinr rsrq
     local qeng_rrc qeng_rat qeng_duplex qeng_mcc qeng_mnc
     local qeng_cell_id qeng_pci qeng_earfcn qeng_band qeng_tac
@@ -486,7 +486,7 @@ _method_refresh() {
     local rsrp_rx0 rsrp_rx1 rsrp_rx2 rsrp_rx3
     local rsrp_nr_rx0 rsrp_nr_rx1 rsrp_nr_rx2 rsrp_nr_rx3
     local qnwinfo_rat qnwinfo_duplex qnwinfo_mcc qnwinfo_mnc qnwinfo_band qnwinfo_earfcn
-    local modem_tx modem_rx supply_mv pcc_pci ca_json
+    local modem_tx modem_rx supply_mv pcc_pci ca_json cereg_tac cereg_ci
 
     stty -F "$AT_PORT" -opost -onlcr -icrnl -icanon -ixon -ixoff -hupcl -echo min 0 time 3 2>/dev/null || true
     exec 3<>"$AT_PORT"
@@ -499,6 +499,8 @@ _method_refresh() {
     raw_qrsrp="$(  _at_seq 'AT+QRSRP')"
     raw_qgdcnt="$( _at_seq 'AT+QGDCNT?')"
     raw_cbc="$(    _at_seq 'AT+CBC')"
+                   _at_seq 'AT+CEREG=2' >/dev/null
+    raw_cereg="$(  _at_seq 'AT+CEREG?')"
 
     exec 3>&-
     _at_unlock
@@ -511,6 +513,7 @@ _method_refresh() {
     _parse_qrsrp   "$raw_qrsrp"
     _parse_qgdcnt  "$raw_qgdcnt"
     _parse_cbc     "$raw_cbc"
+    _parse_cereg   "$raw_cereg"
     pcc_pci="$(printf '%s' "$raw_qcainfo" | grep '^+QCAINFO' | head -1 \
                | sed 's/+QCAINFO:[[:space:]]*//' | tr -d '"' | cut -d, -f6 | tr -d ' \r')"
     ca_json="$(_build_ca_json "$raw_qcainfo")"
@@ -525,7 +528,7 @@ _method_refresh() {
     printf '"rat":%s,'        "$(_json_str "${qeng_rat:-$qnwinfo_rat}")"
     printf '"mcc":%s,'        "$(_json_str "${qeng_mcc:-$qnwinfo_mcc}")"
     printf '"mnc":%s,'        "$(_json_str "${qeng_mnc:-$qnwinfo_mnc}")"
-    printf '"cell_id":%s,'    "$(_json_str "$qeng_cell_id")"
+    printf '"cell_id":%s,'    "$(_json_str "${qeng_cell_id:-$cereg_ci}")"
     printf '"pci":%s,'        "$(_json_num "${qeng_pci:-$pcc_pci}")"
     printf '"earfcn":%s,'     "$(_json_num "${qeng_earfcn:-$qnwinfo_earfcn}")"
     printf '"band":%s,'       "$(_json_num "${qeng_band:-$qnwinfo_band}")"
@@ -674,17 +677,39 @@ _method_set_mode() {
     printf '{"result":"ok"}'
 }
 
+# Reads recent rm520n-watchdog syslog lines, returns a JSON array of strings
+# (oldest first), or [] if logread has nothing yet.
+_build_watchdog_history_json() {
+    local tmpf="/tmp/_rm520n_wdhist_$$" _first=1 _line
+    logread 2>/dev/null | grep 'rm520n-watchdog' | tail -n 30 > "$tmpf"
+    if [ -s "$tmpf" ]; then
+        printf '['
+        while IFS= read -r _line; do
+            [ "$_first" -eq 0 ] && printf ','
+            printf '%s' "$(_json_str "$_line")"
+            _first=0
+        done < "$tmpf"
+        printf ']'
+    else
+        printf '[]'
+    fi
+    rm -f "$tmpf"
+}
+
 _method_get_config() {
-    local wd_enabled wd_host wd_threshold wd_action wd_interval fail_count
+    local wd_enabled wd_host wd_threshold wd_action wd_interval fail_count last_ok history_json
     wd_enabled="$(  uci -q get rm520n.watchdog.enabled        2>/dev/null)"; wd_enabled="${wd_enabled:-0}"
     wd_host="$(     uci -q get rm520n.watchdog.ping_host       2>/dev/null)"; wd_host="${wd_host:-8.8.8.8}"
     wd_threshold="$(uci -q get rm520n.watchdog.fail_threshold  2>/dev/null)"; wd_threshold="${wd_threshold:-3}"
     wd_action="$(   uci -q get rm520n.watchdog.action          2>/dev/null)"; wd_action="${wd_action:-reboot_modem}"
     wd_interval="$( uci -q get rm520n.watchdog.interval        2>/dev/null)"; wd_interval="${wd_interval:-10}"
     fail_count="$(  cat /tmp/rm520n_watchdog_fails 2>/dev/null || printf '0')"
-    printf '{"watchdog":{"enabled":%s,"ping_host":%s,"fail_threshold":%s,"action":%s,"interval":%s,"fail_count":%s}}' \
+    last_ok="$(     cat /tmp/rm520n_watchdog_last_ok 2>/dev/null)"
+    history_json="$(_build_watchdog_history_json)"
+    printf '{"watchdog":{"enabled":%s,"ping_host":%s,"fail_threshold":%s,"action":%s,"interval":%s,"fail_count":%s,"last_ok":%s,"history":%s}}' \
         "$wd_enabled" "$(_json_str "$wd_host")" "$wd_threshold" \
-        "$(_json_str "$wd_action")" "$wd_interval" "$fail_count"
+        "$(_json_str "$wd_action")" "$wd_interval" "$fail_count" \
+        "$(_json_num "$last_ok")" "$history_json"
 }
 
 _method_set_config() {
