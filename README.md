@@ -180,6 +180,9 @@ rm -rf /tmp/luci-indexcache /tmp/luci-modulecache
 **Band/EARFCN show `—` in Cell Info:**
 The modem enters `NOCONN` state on the AT port when data runs over PCIe/GbE. `AT+QENG="servingcell"` returns no cell data in this state. The app falls back to `AT+QNWINFO` (band/EARFCN) and `AT+QCAINFO` (PCI) automatically.
 
+**`wwan_mgmt` shows "Absent" / disconnected in LuCI → Network → Interfaces:**
+Expected — this app doesn't use that interface at all. It talks to the modem over the AT/USB port directly, not QMI. If you installed the companion [gl-mt6000-rm520n-auto-config](https://github.com/pajus1337/gl-mt6000-rm520n-auto-config) installer, see its README Troubleshooting section for why that interface exists and why it's never connected.
+
 ---
 
 ## Compatibility
