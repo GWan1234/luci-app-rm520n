@@ -306,7 +306,8 @@ _build_ca_json() {
             [ "$_rsrp" = "0" ] || [ "$_rsrp" = "-" ] && _rsrp=""
             [ "$_rsrq" = "-" ] && _rsrq=""
             [ "$_rssi" = "-" ] && _rssi=""
-            [ "$_sinr" = "-" ] && _sinr=""
+            # 255 is QCAINFO's own "not available" sentinel for SINR, same role as "-"
+            [ "$_sinr" = "-" ] || [ "$_sinr" = "255" ] && _sinr=""
         fi
         printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
             "$_type" "$_earfcn" "$_bw" "$_band" "$_pci" "$_rsrp" "$_rsrq" "$_rssi" "$_sinr"
