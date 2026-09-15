@@ -49,7 +49,7 @@ _signal_snapshot() {
             band="$( printf '%s' "$raw" | jsonfilter -e "@.ca[$i].band" 2>/dev/null)"
             crsrp="$(printf '%s' "$raw" | jsonfilter -e "@.ca[$i].rsrp" 2>/dev/null)"
             if [ -n "$crsrp" ]; then
-                scc="${scc}b${band:-?}:active,"
+                scc="${scc}b${band:-?}:${crsrp}dBm,"
             else
                 scc="${scc}b${band:-?}:null,"
             fi
@@ -58,8 +58,19 @@ _signal_snapshot() {
     done
     scc="${scc%,}"; scc="${scc:-none}"
 
-    printf 'tech=%s rsrp=%sdBm sinr=%sdB rrc=%s mv=%smV tx+=%sB rx+=%sB scc=%s' \
-        "${tech:-?}" "${rsrp:-?}" "${sinr:-?}" "${rrc:-?}" "${mv:-?}" "$dtx" "$drx" "$scc"
+    printf 'tech=%s rsrp=%sdBm sinr=%sdB rrc=%s mv=%smV tx+=%sB rx+=%sB scc=%s gw=%s' \
+        "${tech:-?}" "${rsrp:-?}" "${sinr:-?}" "${rrc:-?}" "${mv:-?}" "$dtx" "$drx" "$scc" "$(_gw_ping)"
+}
+
+# Reachability of the local next hop, independent of the target host — lets a
+# logged snapshot distinguish "modem/board unreachable" from "operator/WAN
+# down but the local link is fine". Uses the live default route so this stays
+# correct regardless of how the modem's data path is set up on a given router.
+_gw_ping() {
+    local gw
+    gw="$(ip route show default 2>/dev/null | awk '{print $3; exit}')"
+    [ -z "$gw" ] && { printf 'unknown'; return; }
+    ping -c 1 -W 2 "$gw" >/dev/null 2>&1 && printf 'up' || printf 'down'
 }
 
 # Polls for connectivity recovery instead of blindly sleeping for the worst
@@ -96,6 +107,10 @@ _trigger_reboot_modem() {
     printf '2' > "$STAGE_FILE"
     rm -f "$FAIL_FILE"
     ubus call rm520n reboot_modem
+    # AT+CFUN=1,1 resets the modem's own byte counters (AT+QGDCNT), so the
+    # next _signal_snapshot() must not diff against pre-reboot values —
+    # that produced nonsensical negative tx+/rx+ deltas across the reset.
+    rm -f "$COUNTERS_FILE"
     _wait_for_recovery 60 "$host"
 }
 
