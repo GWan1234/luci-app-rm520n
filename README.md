@@ -133,9 +133,12 @@ interval and counts consecutive failures. Once the failure threshold is reached 
 | `cascade` | Escalates one stage per threshold hit: reconnect → reboot modem → reboot router |
 | `reboot_router` | Full OpenWrt reboot |
 
-Detection time is `interval × threshold` (e.g. 10 s × 3 = ~30 s). Every triggered action is logged
-via syslog with a one-line signal snapshot (technology, RSRP, SINR, RRC state) captured at that
-moment, so repeated events can be correlated with signal quality rather than just timestamps.
+Detection time is `interval × threshold` at minimum (e.g. 10 s × 3 = ~30 s) — a little more under
+packet loss, since each failed check itself waits on ping timeouts. Every triggered action is
+logged via syslog with a one-line signal snapshot (technology, RSRP, SINR, RRC state, supply
+voltage, traffic since the last snapshot, per-SCC signal, and local gateway reachability)
+captured at that moment, so repeated events can be correlated with signal quality — and with
+whether the modem itself was still reachable — rather than just timestamps.
 
 Configure it under **Network → 5G Modem (RM520N) → Settings**, where you can also see time since
 the last successful check and a scrollable history of recent watchdog events.

@@ -59,7 +59,7 @@ var CSS =
 
 var ACTION_LABELS = {
     'reconnect':     'Reconnect only (CFUN=4→1, ~5 s)',
-    'reboot_modem':  'Reboot modem (AT+CFUN=1,1, ~25 s)',
+    'reboot_modem':  'Reboot modem (AT+CFUN=1,1, ~40-45 s)',
     'cascade':       'Cascade: reconnect → reboot modem → reboot router',
     'reboot_router': 'Reboot router (full OpenWrt restart, ~60 s)'
 };
@@ -160,7 +160,7 @@ return view.extend({
                 E('button', { 'class': 'rm-btn rm-btn-danger',
                     'click': function() {
                         ui.showModal(_('Reboot Modem'), [
-                            E('p', _('Are you sure? Internet will drop for ~20 seconds.')),
+                            E('p', _('Are you sure? Internet will drop for ~40-45 seconds.')),
                             E('div', { 'class': 'right' }, [
                                 E('button', { 'class': 'btn cbi-button',
                                     'click': ui.hideModal }, _('Cancel')),
@@ -218,7 +218,7 @@ return view.extend({
                             { v: '10', l: '10 ' + _('consecutive failures') }
                         ], curThresh),
                         E('div', { 'class': 'rm-hint' },
-                            _('Example: 10 s × 3 = ~30 s to detect failure.'))
+                            _('Example: 10 s × 3 = ~30 s minimum; each failed check can add a few seconds more.'))
                     ])
                 ]),
                 E('tr', {}, [

@@ -8,15 +8,18 @@
 FAIL_FILE="/tmp/rm520n_watchdog_fails"
 STAGE_FILE="/tmp/rm520n_watchdog_stage"
 LAST_OK_FILE="/tmp/rm520n_watchdog_last_ok"
+COUNTERS_FILE="/tmp/rm520n_watchdog_counters"
 
 _cfg() { uci -q get "rm520n.watchdog.$1" 2>/dev/null; }
 
-# One-line signal snapshot (technology/RSRP/SINR/RRC state) taken via the
-# existing rpcd refresh() call, so every logged action carries the connection
-# state that led to it — makes the history log useful for diagnosing whether
-# failures correlate with poor signal.
+# One-line signal snapshot taken via the existing rpcd refresh() call, so
+# every logged action carries the connection state that led to it — makes
+# the history log useful for diagnosing whether failures correlate with
+# poor signal, PSU quality, traffic load, or NR SCC state.
 _signal_snapshot() {
-    local raw tech rsrp sinr rrc
+    local raw tech rsrp sinr rrc mv tx rx prev_tx prev_rx dtx drx
+    local i type band crsrp scc
+
     raw="$(ubus call rm520n refresh 2>/dev/null)"
     if [ -z "$raw" ]; then
         printf 'signal=unavailable'
@@ -26,7 +29,69 @@ _signal_snapshot() {
     rsrp="$(printf '%s' "$raw" | jsonfilter -e '@.rsrp'       2>/dev/null)"
     sinr="$(printf '%s' "$raw" | jsonfilter -e '@.sinr'       2>/dev/null)"
     rrc="$( printf '%s' "$raw" | jsonfilter -e '@.rrc_state'  2>/dev/null)"
-    printf 'tech=%s rsrp=%sdBm sinr=%sdB rrc=%s' "${tech:-?}" "${rsrp:-?}" "${sinr:-?}" "${rrc:-?}"
+    mv="$(  printf '%s' "$raw" | jsonfilter -e '@.supply_mv'  2>/dev/null)"
+    tx="$(  printf '%s' "$raw" | jsonfilter -e '@.modem_tx'   2>/dev/null)"
+    rx="$(  printf '%s' "$raw" | jsonfilter -e '@.modem_rx'   2>/dev/null)"
+
+    dtx="?"; drx="?"
+    if [ -n "$tx" ] && [ -n "$rx" ]; then
+        [ -f "$COUNTERS_FILE" ] && read -r prev_tx prev_rx < "$COUNTERS_FILE"
+        [ -n "$prev_tx" ] && [ -n "$prev_rx" ] && dtx=$(( tx - prev_tx )) && drx=$(( rx - prev_rx ))
+        printf '%s %s' "$tx" "$rx" > "$COUNTERS_FILE"
+    fi
+
+    scc=""
+    i=0
+    while [ "$i" -lt 8 ]; do
+        type="$(printf '%s' "$raw" | jsonfilter -e "@.ca[$i].type" 2>/dev/null)"
+        [ -z "$type" ] && break
+        if [ "$type" = "SCC" ]; then
+            band="$( printf '%s' "$raw" | jsonfilter -e "@.ca[$i].band" 2>/dev/null)"
+            crsrp="$(printf '%s' "$raw" | jsonfilter -e "@.ca[$i].rsrp" 2>/dev/null)"
+            if [ -n "$crsrp" ]; then
+                scc="${scc}b${band:-?}:${crsrp}dBm,"
+            else
+                scc="${scc}b${band:-?}:null,"
+            fi
+        fi
+        i=$(( i + 1 ))
+    done
+    scc="${scc%,}"; scc="${scc:-none}"
+
+    printf 'tech=%s rsrp=%sdBm sinr=%sdB rrc=%s mv=%smV tx+=%sB rx+=%sB scc=%s gw=%s' \
+        "${tech:-?}" "${rsrp:-?}" "${sinr:-?}" "${rrc:-?}" "${mv:-?}" "$dtx" "$drx" "$scc" "$(_gw_ping)"
+}
+
+# Reachability of the local next hop, independent of the target host — lets a
+# logged snapshot distinguish "modem/board unreachable" from "operator/WAN
+# down but the local link is fine". Uses the live default route so this stays
+# correct regardless of how the modem's data path is set up on a given router.
+_gw_ping() {
+    local gw
+    gw="$(ip route show default 2>/dev/null | awk '{print $3; exit}')"
+    [ -z "$gw" ] && { printf 'unknown'; return; }
+    ping -c 1 -W 2 "$gw" >/dev/null 2>&1 && printf 'up' || printf 'down'
+}
+
+# Polls for connectivity recovery instead of blindly sleeping for the worst
+# case: checks the WAN interface is up and a ping succeeds, every 3s up to
+# max_wait seconds. Resumes as soon as recovery is confirmed and logs the
+# measured recovery time either way, so the fixed cap only ever bounds
+# duration — it no longer dictates it.
+_wait_for_recovery() {
+    local max_wait="$1" host="$2" start elapsed wan_up
+    start="$(date +%s)"
+    while :; do
+        sleep 3
+        wan_up="$(ubus call network.interface.wan status 2>/dev/null | jsonfilter -e '@.up' 2>/dev/null)"
+        if [ "$wan_up" = "true" ] && ping -c 1 -W 3 "$host" > /dev/null 2>&1; then
+            logger -t rm520n-watchdog "connectivity recovered after ~$(( $(date +%s) - start ))s"
+            return 0
+        fi
+        elapsed=$(( $(date +%s) - start ))
+        [ "$elapsed" -ge "$max_wait" ] && break
+    done
+    logger -t rm520n-watchdog "connectivity not confirmed within ${max_wait}s cap (waited ${elapsed}s)"
 }
 
 _trigger_reconnect() {
@@ -34,7 +99,7 @@ _trigger_reconnect() {
     printf '1' > "$STAGE_FILE"
     rm -f "$FAIL_FILE"
     ubus call rm520n reconnect
-    sleep 30
+    _wait_for_recovery 30 "$host"
 }
 
 _trigger_reboot_modem() {
@@ -42,7 +107,11 @@ _trigger_reboot_modem() {
     printf '2' > "$STAGE_FILE"
     rm -f "$FAIL_FILE"
     ubus call rm520n reboot_modem
-    sleep 60
+    # AT+CFUN=1,1 resets the modem's own byte counters (AT+QGDCNT), so the
+    # next _signal_snapshot() must not diff against pre-reboot values —
+    # that produced nonsensical negative tx+/rx+ deltas across the reset.
+    rm -f "$COUNTERS_FILE"
+    _wait_for_recovery 60 "$host"
 }
 
 _trigger_reboot_router() {
@@ -50,6 +119,9 @@ _trigger_reboot_router() {
     rm -f "$FAIL_FILE" "$STAGE_FILE"
     sync
     reboot
+    # The process is about to be killed by the reboot itself — there is no
+    # connectivity left to poll for from here, just a grace period so this
+    # loop iteration doesn't race back into another trigger beforehand.
     sleep 120
 }
 
